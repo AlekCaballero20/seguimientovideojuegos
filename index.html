@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#111827" />
+  <title>Game Rotator</title>
+
+  <link rel="manifest" href="./manifest.json">
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="logo">🎮</div>
+      <div class="titles">
+        <h1>Game Rotator</h1>
+        <p>Rotación diaria de consolas y juegos, sin pensar demasiado.</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="btnInstall" class="btn ghost" hidden>Instalar</button>
+      <button id="btnReset" class="btn ghost" title="Reinicia solo el plan de hoy">Reset hoy</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="card">
+      <div class="card-head">
+        <h2>Plan de hoy</h2>
+        <span id="todayTag" class="tag"></span>
+      </div>
+
+      <div id="todayBox" class="today">
+        <!-- render -->
+      </div>
+
+      <div class="actions">
+        <button id="btnPlayed" class="btn primary">✅ Jugué esto hoy</button>
+        <button id="btnSwap" class="btn">🔄 Cambiar sugerencia</button>
+        <button id="btnComplete" class="btn danger">🏁 Marcar juego completado</button>
+      </div>
+
+      <p class="hint">
+        Tip: “Jugué hoy” guarda historial y mañana evitará repetirte lo de hoy.
+      </p>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <div class="card-head">
+          <h2>Consolas</h2>
+          <button id="btnAddConsole" class="btn">➕ Agregar</button>
+        </div>
+        <div id="consolesList" class="list"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Juegos</h2>
+          <button id="btnAddGame" class="btn">➕ Agregar</button>
+        </div>
+        <div class="subhint">Regla: máximo <b>2 juegos activos</b> por consola (por pasar).</div>
+        <div id="gamesList" class="list"></div>
+      </section>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <small>LocalStorage-only. Nada sale de tu computador. Ni aunque el mundo lo pida.</small>
+  </footer>
+
+  <!-- Modal simple -->
+  <dialog id="modal">
+    <form method="dialog" class="modal">
+      <h3 id="modalTitle">Título</h3>
+      <div id="modalBody"></div>
+      <div class="modal-actions">
+        <button value="cancel" class="btn ghost">Cancelar</button>
+        <button id="modalOk" value="ok" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
