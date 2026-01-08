@@ -1,0 +1,2 @@
+# seguimientovideojuegos
+Seguimiento Videojuegos
