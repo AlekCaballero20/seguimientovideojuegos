@@ -1,452 +1,1081 @@
 :root{
-  /* Core */
-  --bg:#0b1020;
-  --card:#111827;
-  --card-2: rgba(17,24,39,.78);
-  --muted:#9ca3af;
-  --muted-2:#6b7280;
-  --text:#e5e7eb;
+  /* ==========================================================================
+    THEME TOKENS
+    (Porque a los humanos les encanta el caos. Aquí va ordenadito.)
+  ========================================================================== */
 
-  /* Lines + glow */
+  /* Core surfaces + text */
+  --bg: #0b1020;
+  --card: #111827;
+  --card-2: rgba(17,24,39,.78);
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --muted-2: #6b7280;
+
+  /* Lines + rings + glow */
   --line: rgba(255,255,255,.08);
   --line-2: rgba(255,255,255,.12);
+  --ring: 0 0 0 1px rgba(255,255,255,.10) inset;
+  --ring-strong: 0 0 0 1px rgba(255,255,255,.14) inset;
   --glow: 0 0 0 6px rgba(34,197,94,.12);
 
   /* Accents */
-  --accent:#22c55e;
-  --accent-2:#60a5fa;
-  --danger:#ef4444;
-  --warning:#f59e0b;
+  --accent: #22c55e;
+  --accent-2: #60a5fa;
+  --danger: #ef4444;
+  --warning: #f59e0b;
 
   /* Shadows + radius */
   --shadow: 0 12px 34px rgba(0,0,0,.38);
   --shadow-2: 0 8px 24px rgba(0,0,0,.28);
+  --shadow-soft: 0 10px 30px rgba(0,0,0,.32);
   --r: 18px;
 
   /* Spacing */
   --pad: 14px;
 
-  /* Text */
+  /* Typography */
   --font: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
 
   /* Motion */
   --ease: cubic-bezier(.2,.9,.2,1);
   --t: 180ms;
+
+  /* Hero polish */
+  --hero-sheen: linear-gradient(
+    120deg,
+    rgba(34,197,94,.16),
+    rgba(96,165,250,.12),
+    rgba(236,72,153,.10)
+  );
+  --hero-border: linear-gradient(
+    90deg,
+    rgba(34,197,94,.35),
+    rgba(96,165,250,.22),
+    rgba(236,72,153,.18)
+  );
 }
 
-*{box-sizing:border-box}
-html,body{height:100%}
+/* =============================================================================
+  BASE
+============================================================================= */
+*{ box-sizing: border-box; }
+
+html, body{ height: 100%; }
+
 body{
-  margin:0;
+  margin: 0;
   font-family: var(--font);
+  color: var(--text);
   background:
     radial-gradient(1200px 560px at 20% -12%, rgba(34,197,94,.20), transparent 62%),
     radial-gradient(980px 420px at 90% 6%, rgba(96,165,250,.18), transparent 60%),
     radial-gradient(700px 360px at 80% 92%, rgba(236,72,153,.10), transparent 60%),
     var(--bg);
-  color: var(--text);
+
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-/* ---------------------------------
-   Focus visible (accesible)
---------------------------------- */
-:focus{outline:none}
+/* Better tap behavior on mobile */
+button, a, summary{ -webkit-tap-highlight-color: transparent; }
+img, svg{ max-width: 100%; height: auto; }
+
+/* Selection */
+::selection{
+  background: rgba(34,197,94,.22);
+  color: var(--text);
+}
+
+/* =============================================================================
+  FOCUS (accessible)
+  Nota: tu original tenía ":focus :focus-visible" (selector raro). Aquí es correcto.
+============================================================================= */
 :focus-visible{
   box-shadow: var(--glow);
   border-color: rgba(34,197,94,.35) !important;
 }
 
-/* ---------------------------------
-   Header
---------------------------------- */
+/* =============================================================================
+  HEADER
+============================================================================= */
 .top{
   position: sticky;
-  top:0;
-  z-index:10;
-  background: rgba(11,16,32,.72);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--line);
+  top: 0;
+  z-index: 10;
+
   padding: 14px 16px;
-  display:flex;
-  gap:12px;
-  align-items:center;
-  justify-content:space-between;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+
+  background: rgba(11,16,32,.72);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
-.brand{display:flex; gap:12px; align-items:center}
+.brand{
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
 .logo{
-  width:46px; height:46px; border-radius:14px;
-  display:grid; place-items:center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+
   background: rgba(255,255,255,.06);
   border: 1px solid var(--line);
   box-shadow: var(--shadow-2);
-  font-size:22px;
-  user-select:none;
-  transition: transform var(--t) var(--ease), background var(--t) var(--ease);
+
+  font-size: 22px;
+  user-select: none;
+
+  transition:
+    transform var(--t) var(--ease),
+    background var(--t) var(--ease),
+    border-color var(--t) var(--ease),
+    filter var(--t) var(--ease);
+  will-change: transform;
 }
-.logo:hover{transform: translateY(-1px); background: rgba(255,255,255,.08)}
+
+.logo:hover{
+  transform: translateY(-1px);
+  background: rgba(255,255,255,.08);
+  border-color: rgba(255,255,255,.14);
+  filter: saturate(1.05);
+}
+
 .titles h1{
-  margin:0;
-  font-size:16px;
+  margin: 0;
+  font-size: 16px;
   letter-spacing: .2px;
 }
+
 .titles p{
-  margin:3px 0 0;
-  color: var(--muted);
-  font-size:12px;
+  margin: 3px 0 0;
+  font-size: 12px;
   line-height: 1.35;
+  color: var(--muted);
 }
 
-.top-actions{display:flex; gap:10px; align-items:center}
+.top-actions{
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap; /* por si metes Import/Export */
+}
 
-/* ---------------------------------
-   Layout
---------------------------------- */
+/* =============================================================================
+  LAYOUT
+============================================================================= */
 .wrap{
   max-width: 1050px;
   margin: 18px auto 78px;
   padding: 0 16px;
-  display:flex;
-  flex-direction:column;
+
+  display: flex;
+  flex-direction: column;
   gap: 14px;
 }
 
+.view{ display: block; }
+.view[hidden]{ display: none !important; }
+
 .card{
-  background: var(--card-2);
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  box-shadow: var(--shadow);
-  padding: var(--pad);
   position: relative;
   overflow: hidden;
+  isolation: isolate;
+
+  padding: var(--pad);
+  border-radius: var(--r);
+
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
 }
 
 .card::before{
-  content:"";
-  position:absolute;
-  inset:-1px;
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  pointer-events: none;
+
   border-radius: inherit;
-  pointer-events:none;
+  opacity: .6;
+
   background: linear-gradient(
     120deg,
     rgba(34,197,94,.06),
     rgba(96,165,250,.05),
     rgba(236,72,153,.04)
   );
+
   mask: linear-gradient(#0000, #000 18%, #000 82%, #0000);
-  opacity: .6;
+}
+
+.card::after{
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+
+  border-radius: inherit;
+  box-shadow: var(--ring);
+  opacity: .7;
 }
 
 .card-head{
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  gap:10px;
-  margin-bottom: 10px;
   position: relative;
+  margin-bottom: 10px;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
 }
+
 .card-head h2{
-  margin:0;
-  font-size:14px;
+  margin: 0;
+  font-size: 14px;
   letter-spacing: .3px;
 }
 
 .tag{
-  font-size:12px;
+  font-size: 12px;
   color: var(--muted);
   padding: 6px 10px;
+
   border-radius: 999px;
   border: 1px solid var(--line);
   background: rgba(255,255,255,.04);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.08) inset;
 }
 
-/* ---------------------------------
-   Today panel
---------------------------------- */
+/* =============================================================================
+  TODAY PANEL (Hero)
+  Nota: arreglé comentarios rotos que te estaban rompiendo el CSS.
+============================================================================= */
 .today{
+  position: relative;
+  cursor: pointer; /* porque abre stats */
+  will-change: transform;
+
   padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
   border-radius: 14px;
   border: 1px dashed rgba(255,255,255,.18);
   background: rgba(255,255,255,.03);
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-  position: relative;
-  transition: transform var(--t) var(--ease), border-color var(--t) var(--ease), background var(--t) var(--ease);
+
+  transition:
+    transform var(--t) var(--ease),
+    border-color var(--t) var(--ease),
+    background var(--t) var(--ease),
+    box-shadow var(--t) var(--ease),
+    filter var(--t) var(--ease);
 }
+
+.today::before{
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  pointer-events: none;
+
+  border-radius: 14px;
+  background: var(--hero-sheen);
+
+  opacity: .14;
+  filter: blur(6px);
+}
+
 .today:hover{
   transform: translateY(-1px);
   border-color: rgba(255,255,255,.24);
   background: rgba(255,255,255,.04);
+  box-shadow: var(--shadow-soft);
+  filter: saturate(1.05);
 }
 
-.kv{display:flex; gap:10px; flex-wrap:wrap}
+/* Make the plan feel like a hero card when it has content */
+#todayBox:not(:empty){
+  border-style: solid;
+  border-color: rgba(255,255,255,.12);
+}
+
+/* KV pills */
+.kv{
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .kv .pill{
   padding: 8px 10px;
   border-radius: 999px;
   border: 1px solid var(--line);
+
   background: rgba(255,255,255,.05);
-  font-size:13px;
+  box-shadow: var(--ring);
+  font-size: 13px;
 }
-.kv .pill b{color:#fff}
+
+.kv .pill b{ color: #fff; }
 
 .hint{
-  color:var(--muted);
-  font-size:12px;
-  margin:10px 0 0;
-  line-height:1.4;
-}
-.subhint{
-  color:var(--muted);
-  font-size:12px;
-  margin:-4px 0 10px;
-  line-height:1.45;
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
 }
 
-/* ---------------------------------
-   Actions / Buttons
---------------------------------- */
+.subhint{
+  margin: -4px 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* =============================================================================
+  MINI STATS (under plan)
+============================================================================= */
+.mini-stats{
+  margin-top: 10px;
+  padding: 10px;
+
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  box-shadow: var(--ring);
+}
+
+@media (min-width: 860px){
+  .mini-stats{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+.mini-stats .kpi{
+  min-width: 0;
+  padding: 10px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  box-shadow: var(--ring);
+}
+
+.mini-stats .kpi .k{
+  font-size: 11px;
+  letter-spacing: .2px;
+  color: rgba(156,163,175,.9);
+}
+
+.mini-stats .kpi .v{
+  font-size: 14px;
+  font-weight: 950;
+  letter-spacing: .2px;
+  color: #fff;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* =============================================================================
+  ACTIONS / BUTTONS
+============================================================================= */
 .actions{
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
   margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .btn{
-  appearance:none;
-  border: 1px solid var(--line);
-  background: rgba(255,255,255,.06);
-  color: var(--text);
+  appearance: none;
+  user-select: none;
+  will-change: transform;
+
   padding: 10px 12px;
   border-radius: 12px;
-  cursor:pointer;
-  font-weight:700;
-  font-size:13px;
-  transition: transform var(--t) var(--ease), background var(--t) var(--ease), border-color var(--t) var(--ease), box-shadow var(--t) var(--ease);
-  user-select:none;
+
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+
+  color: var(--text);
+  background: rgba(255,255,255,.06);
+  border: 1px solid var(--line);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.12) inset;
+
+  transition:
+    transform var(--t) var(--ease),
+    background var(--t) var(--ease),
+    border-color var(--t) var(--ease),
+    box-shadow var(--t) var(--ease),
+    filter var(--t) var(--ease);
 }
+
 .btn:hover{
-  background: rgba(255,255,255,.09);
   transform: translateY(-1px);
+  background: rgba(255,255,255,.09);
   border-color: rgba(255,255,255,.14);
+  filter: saturate(1.05);
 }
+
 .btn:active{
   transform: translateY(0);
   background: rgba(255,255,255,.08);
+}
+
+.btn:disabled{
+  opacity: .55;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
 }
 
 .btn.primary{
   border-color: rgba(34,197,94,.35);
   background: rgba(34,197,94,.14);
 }
-.btn.primary:hover{background: rgba(34,197,94,.18)}
-.btn.primary:active{background: rgba(34,197,94,.16)}
+.btn.primary:hover{ background: rgba(34,197,94,.18); }
+.btn.primary:active{ background: rgba(34,197,94,.16); }
 
 .btn.danger{
   border-color: rgba(239,68,68,.35);
   background: rgba(239,68,68,.12);
 }
-.btn.danger:hover{background: rgba(239,68,68,.16)}
-.btn.danger:active{background: rgba(239,68,68,.14)}
+.btn.danger:hover{ background: rgba(239,68,68,.16); }
+.btn.danger:active{ background: rgba(239,68,68,.14); }
 
 .btn.ghost{
   background: transparent;
+  box-shadow: none;
 }
-.btn.ghost:hover{
-  background: rgba(255,255,255,.05);
+.btn.ghost:hover{ background: rgba(255,255,255,.05); }
+
+/* Featured ghost button for Stats */
+#btnStats{ border-color: rgba(96,165,250,.22); }
+
+#btnStats:hover{
+  border-color: rgba(96,165,250,.32);
+  background: rgba(96,165,250,.08);
 }
 
-/* Better disabled styling (por si lo usas luego) */
-.btn:disabled{
-  opacity:.55;
-  cursor:not-allowed;
-  transform:none;
+#btnStats:focus-visible{
+  box-shadow: 0 0 0 6px rgba(96,165,250,.14);
 }
 
-/* ---------------------------------
-   Grid + Lists
---------------------------------- */
+/* Slightly nicer icon spacing when you put emojis */
+.btn > span, .btn > i{ line-height: 0; }
+
+/* =============================================================================
+  GRID + LISTS
+============================================================================= */
 .grid{
-  display:grid;
+  display: grid;
   grid-template-columns: 1fr;
   gap: 14px;
 }
+
 @media (min-width: 860px){
-  .grid{grid-template-columns: 1fr 1fr;}
+  .grid{ grid-template-columns: 1fr 1fr; }
 }
 
-.list{display:flex; flex-direction:column; gap:10px}
+.list{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
 .item{
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 11px 11px;
-  background: rgba(255,255,255,.03);
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-start;
-  gap: 10px;
   position: relative;
-  transition: transform var(--t) var(--ease), background var(--t) var(--ease), border-color var(--t) var(--ease);
+  will-change: transform;
+
+  padding: 11px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  box-shadow: var(--ring);
+
+  transition:
+    transform var(--t) var(--ease),
+    background var(--t) var(--ease),
+    border-color var(--t) var(--ease),
+    box-shadow var(--t) var(--ease),
+    filter var(--t) var(--ease);
 }
+
 .item:hover{
   transform: translateY(-1px);
   background: rgba(255,255,255,.04);
   border-color: rgba(255,255,255,.14);
+  box-shadow: var(--ring-strong), var(--shadow-2);
+  filter: saturate(1.05);
 }
-.item .meta{display:flex; flex-direction:column; gap:4px; min-width: 0}
+
+.item .meta{
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .item .title{
-  font-weight: 900;
   font-size: 13px;
-  letter-spacing:.2px;
+  font-weight: 900;
+  letter-spacing: .2px;
+
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 56vw;
 }
+
 @media (min-width: 860px){
-  .item .title{max-width: 360px;}
+  .item .title{ max-width: 360px; }
 }
+
 .item .sub{
-  color:var(--muted);
-  font-size:12px;
+  font-size: 12px;
   line-height: 1.35;
+  color: var(--muted);
 }
+
+.item .sub b{ color: #fff; }
 
 .item .mini{
-  display:flex;
-  gap:8px;
-  flex-wrap:wrap;
-  justify-content:flex-end;
-  align-items:center;
+  min-width: 132px;
+
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
 }
 
-/* Badge mejorado */
+/* Badge */
 .badge{
-  font-size:11px;
+  font-size: 11px;
   padding: 4px 9px;
+
   border-radius: 999px;
   border: 1px solid var(--line);
   background: rgba(255,255,255,.04);
   color: var(--muted);
+
   white-space: nowrap;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.10) inset;
 }
 
-/* Si en el futuro quieres marcar “Nunca jugado” visualmente:
-   app.js ya mete texto. Esto solo refuerza la lectura general. */
-.item .sub b{color:#fff}
+/* =============================================================================
+  INPUTS (toolbar injected by app.js)
+============================================================================= */
+input, select, textarea{ font-family: inherit; }
 
-/* ---------------------------------
-   Inputs (para el toolbar inyectado por app.js)
---------------------------------- */
-input, select, textarea{
-  font-family: inherit;
-}
-
-#qGames, #filterGames{
+#qGames,
+#filterGames{
   color: var(--text) !important;
   border-color: var(--line) !important;
   background: rgba(255,255,255,.04) !important;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.12) inset !important;
 }
-#qGames::placeholder{color: rgba(156,163,175,.65)}
-#qGames:focus-visible, #filterGames:focus-visible{
+
+#qGames{ min-height: 40px; }
+#filterGames{ min-height: 40px; }
+
+#qGames::placeholder{ color: rgba(156,163,175,.65); }
+
+#qGames:focus-visible,
+#filterGames:focus-visible{
   box-shadow: var(--glow) !important;
   border-color: rgba(34,197,94,.35) !important;
 }
 
-/* ---------------------------------
-   Footer
---------------------------------- */
-.foot{
-  position:fixed;
-  left:0; right:0; bottom:0;
-  padding: 10px 16px;
+/* Consistent input styling in modal too */
+.field input,
+.field select{ min-height: 42px; }
+
+/* =============================================================================
+  STATS CENTER (tabs + panels)
+============================================================================= */
+.tabs{
+  margin-top: 8px;
+  padding: 10px 0 2px;
+
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+
   border-top: 1px solid var(--line);
-  background: rgba(11,16,32,.78);
-  backdrop-filter: blur(12px);
-  text-align:center;
-  color: var(--muted);
 }
 
-/* ---------------------------------
-   Dialog / Modal
---------------------------------- */
-dialog::backdrop{background: rgba(0,0,0,.64)}
-dialog{
-  border: none;
-  padding: 0;
-}
+.tab{
+  appearance: none;
+  user-select: none;
 
-.modal{
-  width:min(520px, 92vw);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: rgba(17,24,39,.95);
-  color: var(--text);
-  padding: 14px;
-  box-shadow: var(--shadow);
-}
-.modal h3{
-  margin:0 0 10px;
-  font-size:14px;
-  letter-spacing:.2px;
-}
-.field{display:flex; flex-direction:column; gap:6px; margin: 10px 0}
-.field label{font-size:12px; color: var(--muted)}
-.field input, .field select{
   padding: 10px 12px;
+  border-radius: 999px;
+
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+
+  color: var(--text);
+  background: rgba(255,255,255,.03);
+  border: 1px solid var(--line);
+  box-shadow: var(--ring);
+
+  transition:
+    transform var(--t) var(--ease),
+    background var(--t) var(--ease),
+    border-color var(--t) var(--ease),
+    box-shadow var(--t) var(--ease),
+    filter var(--t) var(--ease);
+}
+
+.tab:hover{
+  transform: translateY(-1px);
+  background: rgba(255,255,255,.05);
+  border-color: rgba(255,255,255,.14);
+  filter: saturate(1.05);
+}
+
+.tab[aria-selected="true"]{
+  border-color: rgba(34,197,94,.30);
+  background: rgba(34,197,94,.12);
+  box-shadow: 0 0 0 1px rgba(34,197,94,.12) inset, var(--ring);
+}
+
+.tab[aria-selected="true"]:hover{
+  background: rgba(34,197,94,.15);
+}
+
+.tab-panels{ margin-top: 10px; }
+
+.panel{ display: block; }
+.panel[hidden]{ display: none !important; }
+
+.kpi-grid{
+  margin-bottom: 10px;
+
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (min-width: 860px){
+  .kpi-grid{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+.kpi-card{
+  min-width: 0;
+  padding: 12px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  box-shadow: var(--ring);
+}
+
+.kpi-card .k{
+  font-size: 11px;
+  letter-spacing: .2px;
+  color: rgba(156,163,175,.9);
+}
+
+.kpi-card .v{
+  font-size: 18px;
+  font-weight: 950;
+  letter-spacing: .2px;
+  line-height: 1.1;
+  color: #fff;
+}
+
+.kpi-card .s{
+  font-size: 12px;
+  line-height: 1.3;
+  color: rgba(156,163,175,.85);
+}
+
+/* Two-column blocks inside stats */
+.split{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 860px){
+  .split{ grid-template-columns: 1fr 1fr; }
+}
+
+.soft-card{
+  padding: 12px;
+
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  box-shadow: var(--ring);
+}
+
+.soft-title{
+  margin-bottom: 10px;
+
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: .25px;
+  color: rgba(229,231,235,.95);
+}
+
+/* Streak grid */
+.streak{
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.streak .day{
+  width: 100%;
+  aspect-ratio: 1/1;
+
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.02);
+  box-shadow: var(--ring);
+}
+
+.streak .day.on{
+  border-color: rgba(34,197,94,.28);
+  background: rgba(34,197,94,.18);
+  box-shadow: 0 0 0 1px rgba(34,197,94,.12) inset;
+}
+
+.streak .day:hover{
+  border-color: rgba(255,255,255,.18);
+}
+
+/* Bars (per console) */
+.bars{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bar{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bar .label{
+  width: 92px;
+  font-size: 12px;
+  color: rgba(229,231,235,.92);
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bar .track{
+  flex: 1;
+  height: 10px;
+
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  overflow: hidden;
+
+  box-shadow: var(--ring);
+}
+
+.bar .fill{
+  height: 100%;
+  width: 0%;
+
+  border-radius: 999px;
+  background: rgba(96,165,250,.22);
+  border: 1px solid rgba(96,165,250,.20);
+  box-shadow: 0 0 0 1px rgba(96,165,250,.10) inset;
+}
+
+.bar .n{
+  width: 34px;
+  text-align: right;
+  font-size: 12px;
+  color: rgba(156,163,175,.9);
+}
+
+/* History list */
+.history{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.h-row{
+  padding: 10px 11px;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  box-shadow: var(--ring);
+}
+
+.h-row .dot{
+  width: 22px;
+  opacity: .95;
+}
+
+.h-row .date{
+  width: 104px;
+  font-size: 12px;
+  color: rgba(156,163,175,.9);
+}
+
+.h-row .txt{
+  flex: 1;
+  font-size: 12px;
+  color: rgba(229,231,235,.92);
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.h-row .meta{
+  font-size: 11px;
+  color: rgba(156,163,175,.85);
+  white-space: nowrap;
+}
+
+/* Rank list */
+.rank{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rank .r{
+  padding: 10px 11px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.03);
+  box-shadow: var(--ring);
+}
+
+.rank .name{
+  max-width: 62vw;
+
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(229,231,235,.95);
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rank .val{
+  font-size: 12px;
+  color: rgba(156,163,175,.9);
+  white-space: nowrap;
+}
+
+/* Generic row helper */
+.row{ display: flex; flex-wrap: wrap; }
+
+/* Stats select */
+#statsGameSelect{
+  padding: 10px 12px;
+
   border-radius: 12px;
   border: 1px solid var(--line);
   background: rgba(255,255,255,.04);
   color: var(--text);
-  transition: border-color var(--t) var(--ease), background var(--t) var(--ease), box-shadow var(--t) var(--ease);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.12) inset;
 }
-.field input:hover, .field select:hover{
+
+#statsGameSelect:focus-visible{
+  box-shadow: 0 0 0 6px rgba(34,197,94,.12);
+  border-color: rgba(34,197,94,.35);
+}
+
+/* =============================================================================
+  FOOTER
+============================================================================= */
+.foot{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+
+  padding: 10px 16px;
+  text-align: center;
+
+  color: var(--muted);
+  background: rgba(11,16,32,.78);
+  border-top: 1px solid var(--line);
+
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* =============================================================================
+  DIALOG / MODAL
+============================================================================= */
+dialog::backdrop{ background: rgba(0,0,0,.64); }
+
+dialog{
+  border: none;
+  padding: 0;
+  max-width: none;
+}
+
+.modal{
+  width: min(520px, 92vw);
+  padding: 14px;
+
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: rgba(17,24,39,.95);
+  color: var(--text);
+  box-shadow: var(--shadow), var(--ring-strong);
+}
+
+.modal h3{
+  margin: 0 0 10px;
+  font-size: 14px;
+  letter-spacing: .2px;
+}
+
+.field{
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label{
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.field input,
+.field select{
+  padding: 10px 12px;
+
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+
+  transition:
+    border-color var(--t) var(--ease),
+    background var(--t) var(--ease),
+    box-shadow var(--t) var(--ease);
+}
+
+.field input:hover,
+.field select:hover{
   border-color: rgba(255,255,255,.14);
   background: rgba(255,255,255,.05);
 }
-.modal-actions{
-  display:flex;
-  justify-content:flex-end;
-  gap:10px;
-  margin-top: 12px
+
+.field input:focus-visible,
+.field select:focus-visible{
+  box-shadow: var(--glow);
+  border-color: rgba(34,197,94,.35);
 }
 
-/* ---------------------------------
-   <details> (Ayuda rápida)
---------------------------------- */
+.modal-actions{
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* =============================================================================
+  <details> (Ayuda rápida)
+============================================================================= */
 details{
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 10px 12px;
   background: rgba(255,255,255,.02);
 }
+
 details[open]{
   border-color: rgba(255,255,255,.14);
   background: rgba(255,255,255,.03);
 }
+
 summary{
   list-style: none;
   user-select: none;
   outline: none;
 }
-summary::-webkit-details-marker{display:none}
+
+summary::-webkit-details-marker{ display: none; }
+
 summary::after{
-  content:"▾";
-  float:right;
-  opacity:.8;
+  content: "▾";
+  float: right;
+  opacity: .8;
   transition: transform var(--t) var(--ease);
 }
-details[open] summary::after{
-  transform: rotate(180deg);
+
+details[open] summary::after{ transform: rotate(180deg); }
+
+/* =============================================================================
+  BETTER SMALL-SCREEN DENSITY
+============================================================================= */
+@media (max-width: 380px){
+  .top{ padding: 12px; }
+  .wrap{ padding: 0 12px; margin: 14px auto 82px; }
+  .btn{ padding: 10px 11px; }
+  .item .mini{ min-width: 108px; }
+  .streak{ grid-template-columns: repeat(7, minmax(0, 1fr)); }
 }
 
-/* ---------------------------------
-   Reduce motion
---------------------------------- */
+/* =============================================================================
+  REDUCE MOTION
+============================================================================= */
 @media (prefers-reduced-motion: reduce){
   *{
     transition: none !important;

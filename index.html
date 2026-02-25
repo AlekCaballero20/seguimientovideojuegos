@@ -1,166 +1,528 @@
 <!doctype html>
 <html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="theme-color" content="#111827" />
-  <meta name="color-scheme" content="dark" />
-  <title>Game Rotator</title>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <title>Game Rotator</title>
 
-  <!-- PWA -->
-  <link rel="manifest" href="./manifest.json">
-  <link rel="icon" href="./icon-192.png" sizes="192x192" type="image/png">
-  <link rel="apple-touch-icon" href="./icon-192.png">
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Theme / PWA vibe -->
+    <meta name="theme-color" content="#111827" />
+    <meta name="color-scheme" content="dark" />
 
-  <!-- Social preview (por si lo compartes) -->
-  <meta name="description" content="Rotación diaria de consolas y juegos, con histórico y stats. LocalStorage-only." />
+    <!-- PWA -->
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" href="./icon-192.png" sizes="192x192" type="image/png" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
 
-  <link rel="stylesheet" href="./styles.css" />
-</head>
+    <!-- Social / SEO -->
+    <meta
+      name="description"
+      content="Rotación diaria de consolas y juegos, con histórico y stats. LocalStorage-only."
+    />
 
-<body>
-  <!-- Accesibilidad: saltar directo al contenido -->
-  <a href="#main" style="
-    position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;
-  " onfocus="this.style.left='12px';this.style.top='12px';this.style.width='auto';this.style.height='auto';this.style.padding='10px 12px';this.style.background='rgba(17,24,39,.95)';this.style.border='1px solid rgba(255,255,255,.12)';this.style.borderRadius='12px';this.style.zIndex='9999';">
-    Saltar al contenido
-  </a>
+    <!-- Preload (micro-boost; no hace milagros, pero ayuda) -->
+    <link rel="preload" href="./styles.css" as="style" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
 
-  <header class="top" role="banner">
-    <div class="brand" aria-label="Identidad de la aplicación">
-      <div class="logo" aria-hidden="true">🎮</div>
-      <div class="titles">
-        <h1>Game Rotator</h1>
-        <p id="tagline">Rotación diaria de consolas y juegos, sin pensar demasiado.</p>
+  <body>
+    <!-- Accesibilidad: saltar directo al contenido -->
+    <a
+      href="#main"
+      style="
+        position: absolute;
+        left: -9999px;
+        top: auto;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      "
+      onfocus="this.style.left='12px';this.style.top='12px';this.style.width='auto';this.style.height='auto';this.style.padding='10px 12px';this.style.background='rgba(17,24,39,.95)';this.style.border='1px solid rgba(255,255,255,.12)';this.style.borderRadius='12px';this.style.zIndex='9999';this.style.boxShadow='0 12px 30px rgba(0,0,0,.45)';"
+    >
+      Saltar al contenido
+    </a>
+
+    <header class="top" role="banner">
+      <div class="brand" aria-label="Identidad de la aplicación">
+        <div class="logo" aria-hidden="true">🎮</div>
+        <div class="titles">
+          <h1>Game Rotator</h1>
+          <p id="tagline">
+            Rotación diaria de consolas y juegos, sin pensar demasiado.
+          </p>
+        </div>
       </div>
-    </div>
 
-    <div class="top-actions" role="group" aria-label="Acciones principales">
-      <button id="btnInstall" class="btn ghost" hidden aria-label="Instalar la aplicación">Instalar</button>
-      <button id="btnReset" class="btn ghost" title="Reinicia solo el plan de hoy" aria-label="Resetear plan de hoy">
-        Reset hoy
-      </button>
-    </div>
-  </header>
+      <div
+        class="top-actions"
+        role="group"
+        aria-label="Acciones principales"
+      >
+        <!-- app.js inserta Exportar / Importar aquí (prepend) -->
 
-  <main id="main" class="wrap" role="main">
-    <!-- Plan de hoy -->
-    <section class="card" aria-labelledby="hPlan">
-      <div class="card-head">
-        <h2 id="hPlan">Plan de hoy</h2>
-        <span id="todayTag" class="tag" aria-live="polite"></span>
-      </div>
-
-      <!-- App.js llena esto y además lo hace clickeable para ver stats -->
-      <div id="todayBox" class="today" aria-live="polite">
-        <!-- render -->
-      </div>
-
-      <div class="actions" role="group" aria-label="Acciones del plan de hoy">
-        <button id="btnPlayed" class="btn primary" aria-keyshortcuts="Enter">
-          ✅ Jugué esto hoy
+        <!-- NUEVO: entrada a stats (app.js le pone vida) -->
+        <button
+          id="btnStats"
+          class="btn ghost"
+          aria-label="Abrir estadísticas y histórico"
+          title="Stats + histórico"
+        >
+          📊 Stats
         </button>
-        <button id="btnSwap" class="btn" aria-keyshortcuts="S">
-          🔄 Cambiar sugerencia
+
+        <button
+          id="btnInstall"
+          class="btn ghost"
+          hidden
+          aria-label="Instalar la aplicación"
+        >
+          Instalar
         </button>
-        <button id="btnComplete" class="btn danger" aria-keyshortcuts="C">
-          🏁 Marcar juego completado
+
+        <button
+          id="btnReset"
+          class="btn ghost"
+          title="Reinicia solo el plan de hoy"
+          aria-label="Resetear plan de hoy"
+        >
+          Reset hoy
         </button>
       </div>
+    </header>
 
-      <!-- Mensajes dinámicos: app.js ya reemplaza este texto -->
-      <p class="hint" id="dailyHint" aria-live="polite">
-        Tip: “Jugué hoy” guarda historial y mañana evitará repetirte lo de hoy.
-      </p>
-
-      <!-- Ayuda rápida (sin estorbar) -->
-      <details style="margin-top:10px;">
-        <summary style="cursor:pointer; color: rgba(229,231,235,.85); font-weight:700; font-size:12px;">
-          Ayuda rápida / atajos
-        </summary>
-        <div class="subhint" style="margin-top:8px; line-height:1.4;">
-          <div>• <b>Enter</b>: marcar “Jugué hoy” (cuando estás en la app)</div>
-          <div>• <b>S</b>: cambiar sugerencia</div>
-          <div>• <b>C</b>: completar juego</div>
-          <div>• Click en el <b>Plan de hoy</b>: abre stats del juego</div>
-          <div style="margin-top:6px; opacity:.9;">
-            Nota: todo es local. Si borras el almacenamiento del navegador, adiós histórico. Así es la vida. 🥲
+    <main id="main" class="wrap" role="main">
+      <!-- =========================
+           HOME (Plan de hoy)
+      ========================== -->
+      <section id="viewHome" class="view" aria-label="Inicio">
+        <!-- Plan de hoy -->
+        <section class="card" aria-labelledby="hPlan">
+          <div class="card-head">
+            <h2 id="hPlan">Plan de hoy</h2>
+            <span id="todayTag" class="tag" aria-live="polite"></span>
           </div>
-        </div>
-      </details>
-    </section>
 
-    <!-- Grid -->
-    <section class="grid" aria-label="Gestión de consolas y juegos">
-      <!-- Consolas -->
-      <section class="card" aria-labelledby="hConsoles">
-        <div class="card-head">
-          <h2 id="hConsoles">Consolas</h2>
-          <button id="btnAddConsole" class="btn" aria-label="Agregar consola">➕ Agregar</button>
-        </div>
-        <div id="consolesList" class="list" aria-live="polite"></div>
+          <!-- App.js llena esto y además lo hace clickeable para ver stats -->
+          <div id="todayBox" class="today" aria-live="polite">
+            <!-- render -->
+          </div>
+
+          <!-- NUEVO: mini dashboard (app.js lo llena, y si no hay data se oculta) -->
+          <div
+            id="miniStats"
+            class="mini-stats"
+            aria-label="Resumen rápido"
+            hidden
+          >
+            <!-- render -->
+          </div>
+
+          <div class="actions" role="group" aria-label="Acciones del plan de hoy">
+            <button
+              id="btnPlayed"
+              class="btn primary"
+              aria-keyshortcuts="Enter"
+            >
+              ✅ Jugué esto hoy
+            </button>
+
+            <button id="btnSwap" class="btn" aria-keyshortcuts="S">
+              🔄 Cambiar sugerencia
+            </button>
+
+            <button
+              id="btnComplete"
+              class="btn danger"
+              aria-keyshortcuts="C"
+            >
+              🏁 Marcar juego completado
+            </button>
+          </div>
+
+          <!-- Mensajes dinámicos: app.js ya reemplaza este texto -->
+          <p class="hint" id="dailyHint" aria-live="polite">
+            Tip: “Jugué hoy” guarda historial y mañana evitará repetirte lo de hoy.
+          </p>
+
+          <!-- Ayuda rápida (sin estorbar) -->
+          <details style="margin-top: 10px">
+            <summary
+              style="
+                cursor: pointer;
+                color: rgba(229, 231, 235, 0.85);
+                font-weight: 700;
+                font-size: 12px;
+              "
+            >
+              Ayuda rápida / atajos
+            </summary>
+
+            <div class="subhint" style="margin-top: 8px; line-height: 1.4">
+              <div>• <b>Enter</b>: marcar “Jugué hoy” (cuando estás en la app)</div>
+              <div>• <b>S</b>: cambiar sugerencia</div>
+              <div>• <b>C</b>: completar juego</div>
+              <div>• Click en el <b>Plan de hoy</b>: abre stats del juego</div>
+
+              <div style="margin-top: 6px; opacity: 0.9">
+                Nota: todo es local. Si borras el almacenamiento del navegador,
+                adiós histórico. Así es la vida. 🥲
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <!-- Grid -->
+        <section class="grid" aria-label="Gestión de consolas y juegos">
+          <!-- Consolas -->
+          <section class="card" aria-labelledby="hConsoles">
+            <div class="card-head">
+              <h2 id="hConsoles">Consolas</h2>
+              <button
+                id="btnAddConsole"
+                class="btn"
+                aria-label="Agregar consola"
+              >
+                ➕ Agregar
+              </button>
+            </div>
+
+            <div id="consolesList" class="list" aria-live="polite"></div>
+          </section>
+
+          <!-- Juegos -->
+          <section class="card" aria-labelledby="hGames">
+            <div class="card-head">
+              <h2 id="hGames">Juegos</h2>
+              <button id="btnAddGame" class="btn" aria-label="Agregar juego">
+                ➕ Agregar
+              </button>
+            </div>
+
+            <div class="subhint">
+              Regla: máximo <b>2 juegos activos</b> por consola (por pasar).
+              <span style="opacity: 0.85">
+                · Tip: usa el buscador para encontrar rápido.
+              </span>
+            </div>
+
+            <!-- app.js agrega aquí arriba su mini toolbar (buscador + filtro) -->
+            <div id="gamesList" class="list" aria-live="polite"></div>
+          </section>
+        </section>
       </section>
 
-      <!-- Juegos -->
-      <section class="card" aria-labelledby="hGames">
-        <div class="card-head">
-          <h2 id="hGames">Juegos</h2>
-          <button id="btnAddGame" class="btn" aria-label="Agregar juego">➕ Agregar</button>
-        </div>
+      <!-- =========================
+           STATS CENTER (nuevo)
+           - Sin archivos nuevos.
+           - app.js controla show/hide y render.
+      ========================== -->
+      <section
+        id="viewStats"
+        class="view"
+        aria-label="Estadísticas e histórico"
+        hidden
+      >
+        <section class="card" aria-labelledby="hStats">
+          <div class="card-head">
+            <div style="display: flex; flex-direction: column; gap: 2px">
+              <h2 id="hStats">Centro de estadísticas</h2>
+              <div class="subhint" style="margin: 0">
+                Stats globales, rachas y un histórico que no da pena. (Por fin.)
+              </div>
+            </div>
 
-        <div class="subhint">
-          Regla: máximo <b>2 juegos activos</b> por consola (por pasar).
-          <span style="opacity:.85;"> · Tip: usa el buscador para encontrar rápido.</span>
-        </div>
+            <div
+              class="mini"
+              style="gap: 10px; justify-content: flex-end; align-items: center"
+            >
+              <button
+                id="btnBackHome"
+                class="btn ghost"
+                aria-label="Volver al inicio"
+                title="Volver"
+              >
+                ← Volver
+              </button>
+            </div>
+          </div>
 
-        <!-- app.js agrega aquí arriba su mini toolbar (buscador + filtro) -->
-        <div id="gamesList" class="list" aria-live="polite"></div>
+          <!-- Tabs -->
+          <div class="tabs" role="tablist" aria-label="Secciones de stats">
+            <button
+              id="tabOverview"
+              class="tab"
+              role="tab"
+              aria-selected="true"
+              aria-controls="panelOverview"
+            >
+              🧠 Resumen
+            </button>
+
+            <button
+              id="tabHistory"
+              class="tab"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panelHistory"
+            >
+              🗓️ Histórico
+            </button>
+
+            <button
+              id="tabGames"
+              class="tab"
+              role="tab"
+              aria-selected="false"
+              aria-controls="panelGames"
+            >
+              🎮 Juegos
+            </button>
+          </div>
+
+          <!-- Panels -->
+          <div class="tab-panels">
+            <!-- Overview -->
+            <section
+              id="panelOverview"
+              class="panel"
+              role="tabpanel"
+              aria-labelledby="tabOverview"
+            >
+              <div
+                id="statsKpis"
+                class="kpi-grid"
+                aria-label="Indicadores principales"
+              >
+                <!-- app.js render -->
+              </div>
+
+              <div class="split" aria-label="Resumen visual">
+                <div class="soft-card">
+                  <div class="soft-title">Racha (últimos 14 días)</div>
+
+                  <div id="streakGrid" class="streak" aria-label="Racha visual">
+                    <!-- app.js render -->
+                  </div>
+
+                  <div class="subhint" style="margin: 8px 0 0">
+                    Verde = jugaste ese día. Gris = no. Sin drama, solo evidencia. 😌
+                  </div>
+                </div>
+
+                <div class="soft-card">
+                  <div class="soft-title">Distribución por consola</div>
+
+                  <div id="consoleBars" class="bars" aria-label="Uso por consola">
+                    <!-- app.js render -->
+                  </div>
+
+                  <div class="subhint" style="margin: 8px 0 0">
+                    Basado en tus registros (no en tus buenas intenciones).
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- History -->
+            <section
+              id="panelHistory"
+              class="panel"
+              role="tabpanel"
+              aria-labelledby="tabHistory"
+              hidden
+            >
+              <div class="subhint" style="margin: 0 0 10px">
+                Tu timeline. Ideal para ver si estás jugando o solo soñando con
+                jugar.
+              </div>
+
+              <div id="historyList" class="history" aria-live="polite">
+                <!-- app.js render -->
+              </div>
+            </section>
+
+            <!-- Games -->
+            <section
+              id="panelGames"
+              class="panel"
+              role="tabpanel"
+              aria-labelledby="tabGames"
+              hidden
+            >
+              <div class="subhint" style="margin: 0 0 10px">
+                Ranking, backlog viejo y cosas que te van a exponer con cariño. 🥲
+              </div>
+
+              <div class="split">
+                <div class="soft-card">
+                  <div class="soft-title">Top jugados (últimos 30 días)</div>
+                  <div id="topGames" class="rank" aria-live="polite">
+                    <!-- app.js render -->
+                  </div>
+                </div>
+
+                <div class="soft-card">
+                  <div class="soft-title">Backlog más viejo</div>
+                  <div id="oldBacklog" class="rank" aria-live="polite">
+                    <!-- app.js render -->
+                  </div>
+                </div>
+              </div>
+
+              <div class="soft-card" style="margin-top: 12px">
+                <div class="soft-title">Explorar un juego (stats detalladas)</div>
+
+                <div class="subhint" style="margin: 0 0 10px">
+                  Selecciona uno y te mostramos sesiones, rachas, gaps y últimos
+                  registros.
+                </div>
+
+                <div class="row" style="gap: 10px; align-items: center">
+                  <label for="statsGameSelect" class="sr-only">
+                    Seleccionar juego
+                  </label>
+
+                  <select id="statsGameSelect" style="flex: 1; min-width: 220px">
+                    <!-- app.js options -->
+                  </select>
+
+                  <button id="btnOpenGameStats" class="btn" type="button">
+                    Ver stats
+                  </button>
+                </div>
+
+                <div id="statsGameDetail" style="margin-top: 12px">
+                  <!-- app.js render -->
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="subhint" style="margin-top: 12px">
+            Todo esto sale de tu <b>LocalStorage</b>. Si lo borras, se borra tu
+            historia. Poético, pero doloroso. 🥲
+          </div>
+        </section>
       </section>
-    </section>
-  </main>
+    </main>
 
-  <footer class="foot" role="contentinfo">
-    <small>
-      LocalStorage-only. Nada sale de tu computador. Ni aunque el mundo lo pida.
-    </small>
-  </footer>
+    <footer class="foot" role="contentinfo">
+      <small>
+        LocalStorage-only. Nada sale de tu computador. Ni aunque el mundo lo
+        pida.
+      </small>
+    </footer>
 
-  <!-- Modal simple -->
-  <dialog id="modal" aria-labelledby="modalTitle">
-    <form method="dialog" class="modal">
-      <h3 id="modalTitle">Título</h3>
-      <div id="modalBody"></div>
-      <div class="modal-actions">
-        <button value="cancel" class="btn ghost">Cancelar</button>
-        <button id="modalOk" value="ok" class="btn primary">Guardar</button>
+    <!-- Modal simple -->
+    <dialog id="modal" aria-labelledby="modalTitle">
+      <form method="dialog" class="modal">
+        <h3 id="modalTitle">Título</h3>
+        <div id="modalBody"></div>
+
+        <div class="modal-actions">
+          <button value="cancel" class="btn ghost">Cancelar</button>
+          <button id="modalOk" value="ok" class="btn primary">Guardar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Atajos de teclado (no estorba inputs) -->
+    <script>
+      (function () {
+        const $ = (s) => document.querySelector(s);
+
+        const isTyping = (el) => {
+          if (!el) return false;
+          const tag = (el.tagName || "").toLowerCase();
+          return (
+            tag === "input" || tag === "textarea" || el.isContentEditable
+          );
+        };
+
+        document.addEventListener(
+          "keydown",
+          (e) => {
+            if (e.repeat) return;
+            if (isTyping(document.activeElement)) return;
+
+            const k = (e.key || "").toLowerCase();
+
+            if (k === "enter") {
+              $("#btnPlayed")?.click();
+            }
+
+            if (k === "s") {
+              $("#btnSwap")?.click();
+            }
+
+            if (k === "c") {
+              $("#btnComplete")?.click();
+            }
+
+            if (k === "escape") {
+              // Si estás en Stats, volver al Home (app.js puede sobreescribir esto si quiere)
+              const stats = $("#viewStats");
+              const home = $("#viewHome");
+
+              if (stats && home && !stats.hidden) {
+                stats.hidden = true;
+                home.hidden = false;
+                $("#btnStats")?.focus?.();
+              }
+            }
+          },
+          { passive: true }
+        );
+      })();
+    </script>
+
+    <!-- App -->
+    <script type="module" src="./app.js"></script>
+
+    <!-- No-JS fallback (por si alguien vive en 2009) -->
+    <noscript>
+      <div
+        style="
+          position: fixed;
+          left: 12px;
+          right: 12px;
+          bottom: 12px;
+          padding: 12px 14px;
+          border-radius: 14px;
+          border: 1px solid rgba(255, 255, 255, 0.14);
+          background: rgba(17, 24, 39, 0.95);
+          color: rgba(229, 231, 235, 0.95);
+          z-index: 9999;
+          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+          font-weight: 700;
+        "
+      >
+        Esta app necesita JavaScript para funcionar. Sin eso, es solo un bonito
+        HTML triste. 🥲
       </div>
-    </form>
-  </dialog>
+    </noscript>
 
-  <!-- Atajos de teclado (cero dependencia; no estorba inputs) -->
-  <script>
-    (function () {
-      const $ = (s) => document.querySelector(s);
-      const isTyping = (el) => {
-        if (!el) return false;
-        const tag = (el.tagName || "").toLowerCase();
-        return tag === "input" || tag === "textarea" || el.isContentEditable;
-      };
-
-      document.addEventListener("keydown", (e) => {
-        if (e.repeat) return;
-        if (isTyping(document.activeElement)) return;
-
-        const k = (e.key || "").toLowerCase();
-        if (k === "enter") { $("#btnPlayed")?.click(); }
-        if (k === "s") { $("#btnSwap")?.click(); }
-        if (k === "c") { $("#btnComplete")?.click(); }
-      });
-    })();
-  </script>
-
-  <script type="module" src="./app.js"></script>
-</body>
+    <!-- Accesibilidad: helper visually-hidden -->
+    <style>
+      .sr-only {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0, 0, 0, 0) !important;
+        white-space: nowrap !important;
+        border: 0 !important;
+      }
+    </style>
+  </body>
 </html>

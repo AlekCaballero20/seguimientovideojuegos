@@ -1,10 +1,11 @@
-/* Game Rotator — v1.3 (localStorage-only)
-   Mejoras:
-   - Histórico más útil: stats por juego (sesiones, días desde inicio, rachas, gaps).
-   - Prioriza juegos nunca jugados y “abandonados” sin matar el peso de consola.
-   - Timeline “últimos 7 días” dentro de Plan de hoy (sin tocar HTML).
-   - Mensajes dinámicos (cambia según situación).
-   - Toasts + micro-animaciones (Web Animations API) sin tocar CSS.
+/* Game Rotator — v1.6 (localStorage-only)
+   Mejoras (sin romper tu data existente):
+   - UI: "Stats Center" (sección completa) sin archivos nuevos: botón en header + vista con tabs.
+   - Stats: KPIs globales, streaks, top juegos, distribución por consola, histórico bonito.
+   - Algoritmo: prioriza juegos más “antiguos” (no jugados hace más tiempo) + fairness por consola.
+   - Render: evita guardar en loop innecesario (solo guarda cuando cambia algo).
+   - Accesibilidad: tabs con aria, navegación simple.
+   - Mantiene: Import/Export, toasts, PWA update flow, modal de stats por juego.
 */
 
 const LS_KEY = "rotator_v1";
@@ -32,6 +33,15 @@ const btnInstall = $("#btnInstall");
 
 let deferredPrompt = null;
 
+// Estado UI (no se guarda en LS)
+const UI = (window.__rotUI = window.__rotUI || {
+  q: "",
+  f: "all",
+  view: "main",      // main | stats
+  statsTab: "resumen", // resumen | historico | juegos
+  statsGameId: null
+});
+
 /* ---------------------------
    Utils
 --------------------------- */
@@ -54,7 +64,6 @@ function todayISO() {
 
 function isoToMs(iso) {
   if (!iso) return null;
-  // ISO "YYYY-MM-DD" -> local midnight
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return null;
   const dt = new Date(y, m - 1, d, 0, 0, 0, 0);
@@ -62,7 +71,7 @@ function isoToMs(iso) {
 }
 
 function msToISO(ms) {
-  if (!ms) return null;
+  if (!ms && ms !== 0) return null;
   const d = new Date(ms);
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -77,152 +86,7 @@ function yesterdayISO() {
 }
 
 function diffDaysMs(aMs, bMs) {
-  // floor day diff based on ms
   return Math.max(0, Math.floor((aMs - bMs) / 86400000));
-}
-
-function load() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return seed();
-    const parsed = JSON.parse(raw);
-    return migrate(parsed);
-  } catch {
-    return seed();
-  }
-}
-
-function save(data) {
-  localStorage.setItem(LS_KEY, JSON.stringify(data));
-}
-
-function seed() {
-  const now = Date.now();
-  const data = {
-    meta: { createdAt: now, version: "1.3" },
-    consoles: [
-      { id: uid("c"), name: "PS5", weight: 1 },
-      { id: uid("c"), name: "Switch", weight: 1 }
-    ],
-    games: [
-      {
-        id: uid("g"),
-        consoleId: null,
-        title: "Agregar juegos 👇",
-        status: "active",
-        addedAt: now,
-        startedAt: null,     // primera vez jugado (ms)
-        lastPlayed: null,    // ms
-        completedAt: null    // ms
-      }
-    ],
-    history: [], // {date, consoleId, gameId, playedAt?}
-    today: null, // {date, consoleId, gameId}
-    skips: {}    // { "YYYY-MM-DD": [{consoleId, gameId}, ...] }
-  };
-
-  data.games[0].consoleId = data.consoles[0].id;
-  return data;
-}
-
-// Migración suave (compatible con data vieja)
-function migrate(data) {
-  if (!data || typeof data !== "object") return seed();
-  if (!Array.isArray(data.consoles)) data.consoles = [];
-  if (!Array.isArray(data.games)) data.games = [];
-  if (!Array.isArray(data.history)) data.history = [];
-  if (!data.meta) data.meta = { createdAt: Date.now() };
-  if (!data.skips || typeof data.skips !== "object") data.skips = {};
-  if (!("today" in data)) data.today = null;
-
-  // Bump versión (sin romper)
-  data.meta.version = data.meta.version || "1.1";
-
-  // Normaliza juegos (addedAt, startedAt)
-  const now = Date.now();
-  for (const g of data.games) {
-    if (!("addedAt" in g) || !g.addedAt) g.addedAt = now;
-    if (!("startedAt" in g)) g.startedAt = null;
-    if (!("lastPlayed" in g)) g.lastPlayed = null;
-    if (!("completedAt" in g)) g.completedAt = null;
-    if (!("status" in g)) g.status = "active";
-  }
-
-  // Normaliza history: agrega playedAt si no existe (derivado del date)
-  for (const h of data.history) {
-    if (!("playedAt" in h) || !h.playedAt) {
-      const ms = isoToMs(h.date);
-      h.playedAt = ms || null;
-    }
-  }
-
-  // Recalcula startedAt si está vacío y hay historial
-  hydrateGameDerivedFromHistory(data);
-
-  // Limpieza de “skips” con cosas borradas
-  pruneDanglingRefs(data);
-
-  data.meta.version = "1.3";
-  return data;
-}
-
-function pruneDanglingRefs(data) {
-  const gameIds = new Set(data.games.map(g => g.id));
-  const consoleIds = new Set(data.consoles.map(c => c.id));
-
-  // history
-  data.history = data.history.filter(h => gameIds.has(h.gameId) && consoleIds.has(h.consoleId));
-
-  // today
-  if (data.today?.gameId && !gameIds.has(data.today.gameId)) data.today = null;
-  if (data.today?.consoleId && !consoleIds.has(data.today.consoleId)) data.today = null;
-
-  // skips
-  if (data.skips && typeof data.skips === "object") {
-    for (const day of Object.keys(data.skips)) {
-      data.skips[day] = (data.skips[day] || []).filter(s => gameIds.has(s.gameId) && consoleIds.has(s.consoleId));
-      if (!data.skips[day].length) {
-        // deja el día vacío, no molesta, pero puedes limpiarlo si quieres
-      }
-    }
-  }
-}
-
-function hydrateGameDerivedFromHistory(data) {
-  // Para cada juego: startedAt = primera aparición en history
-  const first = new Map(); // gameId -> ms
-  for (const h of data.history) {
-    if (!h?.gameId || !h?.date) continue;
-    const ms = h.playedAt || isoToMs(h.date) || null;
-    if (!ms) continue;
-    const prev = first.get(h.gameId);
-    if (!prev || ms < prev) first.set(h.gameId, ms);
-  }
-
-  for (const g of data.games) {
-    if (!g.startedAt && first.has(g.id)) g.startedAt = first.get(g.id);
-    // Si no tiene lastPlayed pero hay historial, lo sacamos del último
-    if (!g.lastPlayed) {
-      const last = lastPlayForGame(data, g.id);
-      if (last?.playedAt) g.lastPlayed = last.playedAt;
-    }
-  }
-}
-
-function lastPlayForGame(data, gameId) {
-  return data.history.slice().reverse().find(h => h.gameId === gameId) || null;
-}
-
-function byId(arr, id) {
-  return arr.find((x) => x.id === id) || null;
-}
-
-function activeGamesForConsole(data, consoleId) {
-  return data.games.filter((g) => g.consoleId === consoleId && g.status === "active");
-}
-
-function lastAssignmentForDate(data, date) {
-  return data.history.slice().reverse().find((h) => h.date === date) || null;
 }
 
 function escapeHtml(s) {
@@ -240,8 +104,158 @@ function el(html) {
   return d.firstElementChild;
 }
 
+function byId(arr, id) {
+  return arr.find((x) => x.id === id) || null;
+}
+
+function activeGamesForConsole(data, consoleId) {
+  return data.games.filter((g) => g.consoleId === consoleId && g.status === "active");
+}
+
+function lastAssignmentForDate(data, date) {
+  return data.history.slice().reverse().find((h) => h.date === date) || null;
+}
+
+function safeNum(n, fallback = 0) {
+  const x = Number(n);
+  return Number.isFinite(x) ? x : fallback;
+}
+
+function nowMs() {
+  return Date.now();
+}
+
 /* ---------------------------
-   Toast + micro-animaciones (sin CSS)
+   Storage (load/save/seed/migrate)
+--------------------------- */
+
+function seed() {
+  const now = nowMs();
+  const data = {
+    meta: { createdAt: now, version: "1.6" },
+    consoles: [
+      { id: uid("c"), name: "PS5", weight: 1 },
+      { id: uid("c"), name: "Switch", weight: 1 }
+    ],
+    games: [
+      {
+        id: uid("g"),
+        consoleId: null,
+        title: "Agregar juegos 👇",
+        status: "active",
+        addedAt: now,
+        startedAt: null,
+        lastPlayed: null,
+        completedAt: null
+      }
+    ],
+    history: [], // {date, consoleId, gameId, playedAt?}
+    today: null, // {date, consoleId, gameId}
+    skips: {}    // { "YYYY-MM-DD": [{consoleId, gameId}, ...] }
+  };
+
+  data.games[0].consoleId = data.consoles[0].id;
+  return data;
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return seed();
+    const parsed = JSON.parse(raw);
+    return migrate(parsed);
+  } catch {
+    return seed();
+  }
+}
+
+function save(data) {
+  localStorage.setItem(LS_KEY, JSON.stringify(data));
+}
+
+function snapshot(data) {
+  try { return JSON.stringify(data); } catch { return ""; }
+}
+
+// Migración suave (compatible con data vieja)
+function migrate(data) {
+  if (!data || typeof data !== "object") return seed();
+  if (!Array.isArray(data.consoles)) data.consoles = [];
+  if (!Array.isArray(data.games)) data.games = [];
+  if (!Array.isArray(data.history)) data.history = [];
+  if (!data.meta) data.meta = { createdAt: nowMs() };
+  if (!data.skips || typeof data.skips !== "object") data.skips = {};
+  if (!("today" in data)) data.today = null;
+
+  const now = nowMs();
+  data.meta.version = data.meta.version || "1.1";
+
+  for (const g of data.games) {
+    if (!("addedAt" in g) || !g.addedAt) g.addedAt = now;
+    if (!("startedAt" in g)) g.startedAt = null;
+    if (!("lastPlayed" in g)) g.lastPlayed = null;
+    if (!("completedAt" in g)) g.completedAt = null;
+    if (!("status" in g)) g.status = "active";
+  }
+
+  for (const h of data.history) {
+    if (!("playedAt" in h) || !h.playedAt) {
+      const ms = isoToMs(h.date);
+      h.playedAt = ms || null;
+    }
+  }
+
+  hydrateGameDerivedFromHistory(data);
+  pruneDanglingRefs(data);
+
+  data.meta.version = "1.6";
+  return data;
+}
+
+function pruneDanglingRefs(data) {
+  const gameIds = new Set(data.games.map(g => g.id));
+  const consoleIds = new Set(data.consoles.map(c => c.id));
+
+  data.history = data.history.filter(h => gameIds.has(h.gameId) && consoleIds.has(h.consoleId));
+
+  if (data.today?.gameId && !gameIds.has(data.today.gameId)) data.today = null;
+  if (data.today?.consoleId && !consoleIds.has(data.today.consoleId)) data.today = null;
+
+  if (data.skips && typeof data.skips === "object") {
+    for (const day of Object.keys(data.skips)) {
+      data.skips[day] = (data.skips[day] || []).filter(s => gameIds.has(s.gameId) && consoleIds.has(s.consoleId));
+    }
+  }
+}
+
+function lastPlayForGame(data, gameId) {
+  return data.history.slice().reverse().find(h => h.gameId === gameId) || null;
+}
+
+function hydrateGameDerivedFromHistory(data) {
+  const first = new Map(); // gameId -> ms
+  const last = new Map();  // gameId -> ms
+
+  for (const h of data.history) {
+    if (!h?.gameId || !h?.date) continue;
+    const ms = h.playedAt || isoToMs(h.date) || null;
+    if (!ms) continue;
+
+    const prevFirst = first.get(h.gameId);
+    if (!prevFirst || ms < prevFirst) first.set(h.gameId, ms);
+
+    const prevLast = last.get(h.gameId);
+    if (!prevLast || ms > prevLast) last.set(h.gameId, ms);
+  }
+
+  for (const g of data.games) {
+    if (!g.startedAt && first.has(g.id)) g.startedAt = first.get(g.id);
+    if (!g.lastPlayed && last.has(g.id)) g.lastPlayed = last.get(g.id);
+  }
+}
+
+/* ---------------------------
+   Toast + micro-animaciones
 --------------------------- */
 
 let toastEl = null;
@@ -275,10 +289,7 @@ function ensureToast() {
 function toast(msg) {
   const t = ensureToast();
   t.textContent = msg;
-
-  // Cancel anim previa
   t.getAnimations().forEach(a => a.cancel());
-
   t.animate(
     [
       { opacity: 0, transform: "translateX(-50%) translateY(8px) scale(.98)" },
@@ -293,22 +304,17 @@ function toast(msg) {
 function pulse(elm) {
   if (!elm) return;
   elm.getAnimations().forEach(a => a.cancel());
-  elm.animate(
-    [{ transform: "scale(1)" }, { transform: "scale(1.01)" }, { transform: "scale(1)" }],
-    { duration: 240, easing: "ease-out" }
-  );
+  elm.animate([{ transform: "scale(1)" }, { transform: "scale(1.01)" }, { transform: "scale(1)" }], {
+    duration: 240, easing: "ease-out"
+  });
 }
 
 function flipSwap(elm) {
   if (!elm) return;
   elm.getAnimations().forEach(a => a.cancel());
-  elm.animate(
-    [
-      { opacity: 0.2, transform: "translateY(6px)" },
-      { opacity: 1, transform: "translateY(0)" }
-    ],
-    { duration: 220, easing: "ease-out" }
-  );
+  elm.animate([{ opacity: 0.2, transform: "translateY(6px)" }, { opacity: 1, transform: "translateY(0)" }], {
+    duration: 220, easing: "ease-out"
+  });
 }
 
 /* ---------------------------
@@ -320,12 +326,11 @@ function uniqueDatesFromHistoryForGame(data, gameId) {
   for (const h of data.history) {
     if (h.gameId === gameId && h.date) set.add(h.date);
   }
-  return Array.from(set).sort(); // ISO lex sorts by time
+  return Array.from(set).sort();
 }
 
 function longestStreak(sortedDates) {
   if (!sortedDates.length) return 0;
-
   let best = 1;
   let cur = 1;
 
@@ -346,10 +351,8 @@ function longestStreak(sortedDates) {
 }
 
 function currentStreak(sortedDates) {
-  // streak que termina en HOY si jugaste hoy, si no, streak termina en última fecha jugada
   if (!sortedDates.length) return 0;
   let cur = 1;
-
   for (let i = sortedDates.length - 1; i > 0; i--) {
     const a = isoToMs(sortedDates[i]);
     const b = isoToMs(sortedDates[i - 1]);
@@ -384,7 +387,7 @@ function computeGameStats(data, gameId) {
   const firstDate = dates[0] || null;
   const lastDate = dates[dates.length - 1] || null;
 
-  const now = Date.now();
+  const now = nowMs();
   const firstMs = firstDate ? isoToMs(firstDate) : (g?.startedAt || null);
   const lastMs = lastDate ? isoToMs(lastDate) : (g?.lastPlayed || null);
 
@@ -423,27 +426,75 @@ function lastNDaysISO(n) {
   return out;
 }
 
-function buildLast7Timeline(data) {
-  const days = lastNDaysISO(7);
+function buildTimeline(data, n = 30) {
+  const days = lastNDaysISO(n);
   const map = new Map();
-  for (const h of data.history) map.set(h.date, h); // 1 por día (tú garantizas eso)
-
+  for (const h of data.history) map.set(h.date, h);
   return days.map(date => {
     const h = map.get(date);
-    if (!h) return { date, played: false, label: "—" };
-
+    if (!h) return { date, played: false, label: "—", consoleId: null, gameId: null };
     const c = byId(data.consoles, h.consoleId);
     const g = byId(data.games, h.gameId);
-    return {
-      date,
-      played: true,
-      label: `${c?.name || "?"} · ${g?.title || "?"}`
-    };
+    return { date, played: true, label: `${c?.name || "?"} · ${g?.title || "?"}`, consoleId: h.consoleId, gameId: h.gameId };
   });
 }
 
+function computeGlobalStats(data) {
+  const now = nowMs();
+
+  const activeGames = data.games.filter(g => g.status === "active");
+  const doneGames = data.games.filter(g => g.status === "done");
+
+  const sessions = data.history.length;
+
+  const uniqGamesPlayed = new Set(data.history.map(h => h.gameId)).size;
+  const uniqConsolesUsed = new Set(data.history.map(h => h.consoleId)).size;
+
+  const last30 = lastNDaysISO(30);
+  const sessions30 = data.history.filter(h => last30.includes(h.date)).length;
+
+  const playedDaysSet = new Set(data.history.map(h => h.date));
+  const playedDays = Array.from(playedDaysSet).sort();
+  const streakBest = longestStreak(playedDays);
+  const streakCurrent = currentStreak(playedDays);
+
+  const lastPlayedMs = data.history.length ? Math.max(...data.history.map(h => safeNum(h.playedAt, 0))) : null;
+  const daysSinceLast = lastPlayedMs ? diffDaysMs(now, lastPlayedMs) : null;
+
+  // Top juegos (por sesiones)
+  const countByGame = new Map();
+  for (const h of data.history) countByGame.set(h.gameId, (countByGame.get(h.gameId) || 0) + 1);
+  const topGames = Array.from(countByGame.entries())
+    .map(([gameId, n]) => ({ gameId, n, title: byId(data.games, gameId)?.title || "?" }))
+    .sort((a,b) => b.n - a.n)
+    .slice(0, 8);
+
+  // Distribución por consola (por sesiones)
+  const countByConsole = new Map();
+  for (const h of data.history) countByConsole.set(h.consoleId, (countByConsole.get(h.consoleId) || 0) + 1);
+  const byConsole = data.consoles.map(c => ({
+    consoleId: c.id,
+    name: c.name,
+    n: countByConsole.get(c.id) || 0
+  })).sort((a,b) => b.n - a.n);
+
+  return {
+    activeGamesCount: activeGames.length,
+    doneGamesCount: doneGames.length,
+    sessions,
+    uniqGamesPlayed,
+    uniqConsolesUsed,
+    sessions30,
+    streakBest,
+    streakCurrent,
+    daysSinceLast,
+    topGames,
+    byConsole
+  };
+}
+
 /* ---------------------------
-   Rotation logic (mejorado)
+   Rotation logic (prioriza lo más “antiguo”)
 --------------------------- */
 
 function buildCandidatePairs(data) {
@@ -455,42 +506,54 @@ function buildCandidatePairs(data) {
   return pairs;
 }
 
+/*
+  scorePair: menor = mejor (se elige el más bajo)
+
+  Ideas:
+  - PRIORIDAD 1: juegos nunca jugados (dales ventaja fuerte)
+  - PRIORIDAD 2: más días desde lastPlayed = mejor (más negativo)
+  - Fairness consola: si una consola se usó mucho en últimas 14 sesiones, penaliza
+  - Peso consola: weight > 1 debería hacerlo más frecuente (reduce score)
+  - Evita status != active
+*/
 function scorePair(data, pair) {
-  // Lower score = mejor candidato (más “debido”)
   const g = byId(data.games, pair.gameId);
   const c = byId(data.consoles, pair.consoleId);
   if (!g || !c) return 999;
 
-  const now = Date.now();
+  const now = nowMs();
   let score = 0;
 
-  // 1) Prioridad fuerte a “nunca jugado”
+  // 1) Unplayed boost (muy fuerte)
   if (!g.lastPlayed) {
     const daysSinceAdded = g.addedAt ? diffDaysMs(now, g.addedAt) : 0;
-    // Más viejo sin jugar = más prioridad
-    score -= 22;
-    score -= clamp(daysSinceAdded, 0, 10); // hasta -10 extra
+    score -= 60;                       // prioridad heavy
+    score -= clamp(daysSinceAdded, 0, 30) * 0.6; // si lleva mucho sin tocarse, más prioridad
   } else {
+    // 2) Cuánto tiempo lleva sin jugarse
     const daysAgo = diffDaysMs(now, g.lastPlayed);
-    // Más días sin jugar = más prioridad (hasta cierto punto)
-    score -= clamp(daysAgo, 0, 18);
-
-    // 2) Si está medio abandonado (ej: >7 días), empujoncito extra
-    if (daysAgo >= 7) score -= clamp(daysAgo - 7, 0, 8);
+    score -= clamp(daysAgo, 0, 120) * 0.7; // más días => score más bajo => mejor
+    if (daysAgo >= 14) score -= clamp(daysAgo - 14, 0, 60) * 0.15; // extra si está súper olvidado
   }
 
-  // 3) Consolas con menos uso reciente (últimos 14 días)
+  // 3) Fairness por consola en últimas 14 sesiones
   const recent = data.history.slice(-14);
   const consoleCount = recent.filter((h) => h.consoleId === pair.consoleId).length;
-  score += consoleCount * 1.6; // menos agresivo que antes, para no matar “unplayed”
+  score += consoleCount * 4.2;
 
-  // 4) Peso consola (más peso => más frecuente => menos penalización)
-  const w = Number(c.weight || 1);
-  // Convertimos a penalización suave: w alto = menos suma
-  score += clamp(1 / Math.max(0.25, w), 0.25, 4) * 0.9;
+  // 4) Peso consola (más peso => más frecuente => menor score)
+  const w = Math.max(0.25, safeNum(c.weight, 1));
+  score += (1 / w) * 2.0;
 
-  // 5) Pequeña penalización a juegos completados (por si algo raro queda active)
-  if (g.status !== "active") score += 50;
+  // 5) Status
+  if (g.status !== "active") score += 999;
+
+  // 6) Micro: si es el juego de ayer, penalízalo un poco (por si se cuela)
+  const y = yesterdayISO();
+  const yPick = lastAssignmentForDate(data, y);
+  if (yPick && yPick.gameId === pair.gameId && yPick.consoleId === pair.consoleId) {
+    score += 30;
+  }
 
   return score;
 }
@@ -501,7 +564,6 @@ function pickToday(data, { forceNew = false } = {}) {
   if (!data.skips) data.skips = {};
   if (!data.skips[t]) data.skips[t] = [];
 
-  // Reusa pick del día si no forces
   if (!forceNew && data.today && data.today.date === t) return data.today;
 
   let pairs = buildCandidatePairs(data).filter((p) => {
@@ -514,14 +576,11 @@ function pickToday(data, { forceNew = false } = {}) {
     return data.today;
   }
 
-  // Evita pares skippeados hoy
   const skipped = data.skips[t];
-  pairs = pairs.filter(
-    (p) => !skipped.some((s) => s.consoleId === p.consoleId && s.gameId === p.gameId)
-  );
+  pairs = pairs.filter((p) => !skipped.some((s) => s.consoleId === p.consoleId && s.gameId === p.gameId));
 
-  // Si ya skippeaste todo hoy, resetea skips del día
   if (!pairs.length) {
+    // Si ya saltaste todo, resetea saltos
     data.skips[t] = [];
     pairs = buildCandidatePairs(data).filter((p) => {
       const g = byId(data.games, p.gameId);
@@ -529,17 +588,14 @@ function pickToday(data, { forceNew = false } = {}) {
     });
   }
 
-  // Evita repetir ayer EXACTO si se puede
+  // Evita repetir exactamente lo de ayer si hay alternativas
   const y = yesterdayISO();
   const yPick = lastAssignmentForDate(data, y);
   if (yPick) {
-    const notYesterday = pairs.filter(
-      (p) => !(p.consoleId === yPick.consoleId && p.gameId === yPick.gameId)
-    );
+    const notYesterday = pairs.filter((p) => !(p.consoleId === yPick.consoleId && p.gameId === yPick.gameId));
     if (notYesterday.length) pairs = notYesterday;
   }
 
-  // Score y elige mejor
   const scored = pairs
     .map((p) => ({ ...p, score: scorePair(data, p) }))
     .sort((a, b) => a.score - b.score);
@@ -554,7 +610,6 @@ function pickToday(data, { forceNew = false } = {}) {
 --------------------------- */
 
 function seededPick(items, seedStr) {
-  // hash simple estable por día
   let h = 2166136261;
   for (let i = 0; i < seedStr.length; i++) {
     h ^= seedStr.charCodeAt(i);
@@ -617,7 +672,130 @@ function buildDailyMessage(data, todayPick) {
 }
 
 /* ---------------------------
-   UI render (mejorado)
+   UI: Views (main / stats)
+--------------------------- */
+
+function ensureViews() {
+  const main = $("#main");
+  if (!main) return;
+
+  // Stats button in header (sin tocar HTML)
+  const topActions = document.querySelector(".top-actions");
+  if (topActions && !document.querySelector("#btnStats")) {
+    const b = document.createElement("button");
+    b.id = "btnStats";
+    b.className = "btn ghost";
+    b.textContent = "📊 Stats";
+    b.title = "Abrir Stats Center";
+    b.addEventListener("click", () => {
+      UI.view = UI.view === "stats" ? "main" : "stats";
+      render();
+      if (UI.view === "stats") toast("Stats Center abierto 📊");
+    });
+    // Queda cerca de Reset/Instalar/Import/Export
+    topActions.appendChild(b);
+  }
+
+  // Stats section (inserted inside <main>)
+  if (!$("#statsView")) {
+    const stats = el(`
+      <section id="statsView" class="card view" hidden aria-label="Stats Center">
+        <div class="card-head">
+          <h2>Stats Center</h2>
+          <span class="tag" id="statsTag">—</span>
+        </div>
+
+        <div class="subhint" style="margin-bottom:10px;">
+          Histórico y estadísticas sin dramas. Todo local. Todo tuyo. 🧠
+        </div>
+
+        <div class="row" style="gap:10px; align-items:center; justify-content:space-between;">
+          <div class="row" style="gap:10px; align-items:center;">
+            <select id="statsGameSelect" aria-label="Seleccionar juego para stats"></select>
+            <button id="btnBackMain" class="btn ghost" title="Volver al plan">⬅ Volver</button>
+          </div>
+          <div class="subhint" id="statsMiniNote" style="margin:0;">—</div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Secciones de estadísticas">
+          <button class="tab" role="tab" data-tab="resumen" aria-selected="true">Resumen</button>
+          <button class="tab" role="tab" data-tab="historico" aria-selected="false">Histórico</button>
+          <button class="tab" role="tab" data-tab="juegos" aria-selected="false">Juegos</button>
+        </div>
+
+        <div class="tab-panels">
+          <div class="panel" data-panel="resumen"></div>
+          <div class="panel" data-panel="historico" hidden></div>
+          <div class="panel" data-panel="juegos" hidden></div>
+        </div>
+      </section>
+    `);
+
+    // Insert right after Plan card (first card)
+    const firstCard = main.querySelector(".card");
+    if (firstCard && firstCard.parentNode) {
+      firstCard.insertAdjacentElement("afterend", stats);
+    } else {
+      main.appendChild(stats);
+    }
+
+    // Back
+    stats.querySelector("#btnBackMain").addEventListener("click", () => {
+      UI.view = "main";
+      render();
+    });
+
+    // Tabs
+    stats.querySelectorAll(".tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        UI.statsTab = tab.getAttribute("data-tab") || "resumen";
+        render();
+      });
+    });
+
+    // Game select
+    stats.querySelector("#statsGameSelect").addEventListener("change", (e) => {
+      UI.statsGameId = e.target.value || null;
+      render();
+    });
+  }
+}
+
+function setViewMode() {
+  const statsView = $("#statsView");
+  const grid = document.querySelector(".grid");
+  const planCard = document.querySelector("#hPlan")?.closest?.(".card");
+
+  if (!statsView || !grid || !planCard) return;
+
+  const isStats = UI.view === "stats";
+  statsView.hidden = !isStats;
+
+  // Main content toggles
+  grid.hidden = isStats;
+  // Plan card stays visible in main; in stats view keep it visible but less priority? We'll hide actions? Nope: simple, hide plan too.
+  planCard.hidden = isStats;
+}
+
+function wireTodayBoxToStats(data) {
+  // Click on plan opens Stats Center + selects today game
+  const t = todayISO();
+  const today = data.today;
+  if (todayBox && today?.gameId && today?.consoleId) {
+    todayBox.onclick = () => {
+      UI.view = "stats";
+      UI.statsTab = "resumen";
+      UI.statsGameId = today.gameId;
+      render();
+      toast("Stats del juego abierto 📊");
+    };
+  } else {
+    if (todayBox) todayBox.onclick = null;
+  }
+}
+
+/* ---------------------------
+   UI render
 --------------------------- */
 
 function renderTodayBox(data) {
@@ -639,24 +817,13 @@ function renderTodayBox(data) {
   const skippedCount = (data.skips?.[t]?.length || 0);
   const stats = computeGameStats(data, today.gameId);
 
-  const lastPlayedStr = g?.lastPlayed
-    ? `${new Date(g.lastPlayed).toLocaleString("es-CO")}`
-    : "Nunca";
+  const lastPlayedStr = g?.lastPlayed ? `${new Date(g.lastPlayed).toLocaleString("es-CO")}` : "Nunca";
+  const sinceStart = stats.daysSinceStart != null ? `${stats.daysSinceStart} día(s) desde que lo empezaste` : "Aún no lo has empezado";
+  const sinceLast = stats.daysSinceLast != null ? `· ${stats.daysSinceLast} día(s) desde la última vez` : "";
+  const sessions = `· ${stats.sessions} sesión(es)`;
+  const streak = stats.sessions ? `· Racha máx: ${stats.streakBest}` : "";
 
-  const sinceStart =
-    stats.daysSinceStart != null ? `${stats.daysSinceStart} día(s) desde que lo empezaste` : "Aún no lo has empezado";
-
-  const sinceLast =
-    stats.daysSinceLast != null ? `· ${stats.daysSinceLast} día(s) desde la última vez` : "";
-
-  const sessions =
-    stats.sessions ? `· ${stats.sessions} sesión(es)` : `· 0 sesiones`;
-
-  const streak =
-    stats.sessions ? `· Racha máx: ${stats.streakBest}` : "";
-
-  // Timeline 7 días
-  const timeline = buildLast7Timeline(data)
+  const timeline7 = buildTimeline(data, 7)
     .map(d => {
       const dot = d.played ? "✅" : "·";
       const label = d.played ? escapeHtml(d.label) : "—";
@@ -667,6 +834,17 @@ function renderTodayBox(data) {
       </div>`;
     })
     .join("");
+
+  // Mini KPIs (nice with your CSS .mini-stats)
+  const global = computeGlobalStats(data);
+  const mini = `
+    <div class="mini-stats" aria-label="Mini estadísticas rápidas">
+      <div class="kpi"><div class="k">Racha actual</div><div class="v">${global.streakCurrent}</div></div>
+      <div class="kpi"><div class="k">Racha máx</div><div class="v">${global.streakBest}</div></div>
+      <div class="kpi"><div class="k">Sesiones (30d)</div><div class="v">${global.sessions30}</div></div>
+      <div class="kpi"><div class="k">Juegos jugados</div><div class="v">${global.uniqGamesPlayed}</div></div>
+    </div>
+  `;
 
   todayBox.innerHTML = `
     <div class="kv">
@@ -685,14 +863,13 @@ function renderTodayBox(data) {
 
     <div class="subhint">⏳ ${sinceStart}</div>
 
+    ${mini}
+
     <div style="margin-top:10px;border-top:1px solid rgba(255,255,255,.08);padding-top:10px;">
       <div class="subhint" style="margin:0 0 6px;">Últimos 7 días</div>
-      <div>${timeline}</div>
+      <div>${timeline7}</div>
     </div>
   `;
-
-  // Click en Plan de hoy => Stats del juego (comodín)
-  todayBox.onclick = () => openStatsModal(today.gameId);
 }
 
 function renderConsoles(data) {
@@ -710,7 +887,7 @@ function renderConsoles(data) {
             <div class="sub">Activos: ${activeCount}/2 · Último uso: ${escapeHtml(lastStr)}</div>
           </div>
           <div class="mini">
-            <span class="badge">peso: ${Number(c.weight || 1)}</span>
+            <span class="badge">peso: ${safeNum(c.weight, 1)}</span>
             <button class="btn ghost" data-action="editConsole" data-id="${c.id}">Editar</button>
             <button class="btn ghost" data-action="delConsole" data-id="${c.id}">Borrar</button>
           </div>
@@ -723,7 +900,6 @@ function renderConsoles(data) {
 function renderGames(data) {
   gamesList.innerHTML = "";
 
-  // Toolbar mini (sin tocar HTML)
   const toolbar = el(`
     <div class="item" style="align-items:center;">
       <div class="meta" style="width:100%;">
@@ -731,7 +907,7 @@ function renderGames(data) {
         <div class="sub">Filtra y revisa stats rápido. (Sí, ahora esto es serio.)</div>
       </div>
       <div class="mini" style="gap:10px;">
-        <input id="qGames" placeholder="Buscar..." 
+        <input id="qGames" placeholder="Buscar..."
           style="padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:#e5e7eb;min-width:180px;outline:none;" />
         <select id="filterGames"
           style="padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:#e5e7eb;outline:none;">
@@ -747,41 +923,33 @@ function renderGames(data) {
 
   const $q = toolbar.querySelector("#qGames");
   const $f = toolbar.querySelector("#filterGames");
-
-  // estado de filtro en memoria (no en data, solo UI)
-  const ui = window.__rotUI || (window.__rotUI = { q: "", f: "all" });
-  $q.value = ui.q;
-  $f.value = ui.f;
+  $q.value = UI.q;
+  $f.value = UI.f;
 
   const apply = () => {
-    ui.q = $q.value.trim().toLowerCase();
-    ui.f = $f.value;
-    render(); // re-render completo (simple y suficiente para tamaño pequeño)
+    UI.q = $q.value.trim().toLowerCase();
+    UI.f = $f.value;
+    render(); // simple (sí, recrea toolbar, pero ok)
   };
+  $q.oninput = apply;
+  $f.onchange = apply;
 
-  $q.oninput = () => apply();
-  $f.onchange = () => apply();
-
-  // Filtrado
   let list = data.games.slice();
 
-  if (ui.q) {
-    list = list.filter(g => (g.title || "").toLowerCase().includes(ui.q));
-  }
+  if (UI.q) list = list.filter(g => (g.title || "").toLowerCase().includes(UI.q));
+  if (UI.f === "active") list = list.filter(g => g.status === "active");
+  if (UI.f === "done") list = list.filter(g => g.status === "done");
+  if (UI.f === "unplayed") list = list.filter(g => !g.lastPlayed && g.status === "active");
 
-  if (ui.f === "active") list = list.filter(g => g.status === "active");
-  if (ui.f === "done") list = list.filter(g => g.status === "done");
-  if (ui.f === "unplayed") list = list.filter(g => !g.lastPlayed && g.status === "active");
-
-  // Orden “inteligente”: unplayed primero, luego más días sin jugar
+  // Sorting: never-played first, then longest time since last played (oldest first)
   list.sort((a, b) => {
     const au = !a.lastPlayed ? 1 : 0;
     const bu = !b.lastPlayed ? 1 : 0;
-    if (au !== bu) return bu - au; // unplayed arriba
+    if (au !== bu) return bu - au;
 
-    const ad = a.lastPlayed ? diffDaysMs(Date.now(), a.lastPlayed) : 999;
-    const bd = b.lastPlayed ? diffDaysMs(Date.now(), b.lastPlayed) : 999;
-    return bd - ad;
+    const ad = a.lastPlayed ? diffDaysMs(nowMs(), a.lastPlayed) : 9999;
+    const bd = b.lastPlayed ? diffDaysMs(nowMs(), b.lastPlayed) : 9999;
+    return bd - ad; // more days ago => first
   });
 
   for (const g of list) {
@@ -806,7 +974,7 @@ function renderGames(data) {
           </div>
           <div class="mini">
             <span class="badge">${statusLabel}</span>
-            <button class="btn ghost" data-action="statsGame" data-id="${g.id}">📊 Stats</button>
+            <button class="btn ghost" data-action="openStatsCenter" data-id="${g.id}">📊 Stats</button>
             <button class="btn ghost" data-action="toggleGame" data-id="${g.id}">
               ${g.status === "active" ? "Completar" : "Reactivar"}
             </button>
@@ -818,37 +986,331 @@ function renderGames(data) {
     );
   }
 
-  // micro anim a items nuevos
   Array.from(gamesList.querySelectorAll(".item")).slice(1).forEach((node, i) => {
-    node.animate(
-      [{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "translateY(0)" }],
-      { duration: 160 + i * 12, easing: "ease-out" }
-    );
+    node.animate([{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "translateY(0)" }], {
+      duration: 160 + i * 12, easing: "ease-out"
+    });
   });
 }
 
 function updateMainHint(data) {
-  // El hint fijo está en la primera card (Plan de hoy)
   const hint = document.querySelector(".card .hint");
   if (!hint) return;
+  hint.textContent = buildDailyMessage(data, data.today);
+}
 
-  const msg = buildDailyMessage(data, data.today);
-  hint.textContent = msg;
+function ensureToday(data) {
+  const t = todayISO();
+  if (!data.today || data.today.date !== t) pickToday(data);
+}
+
+function ensureSeedStatsGame(data) {
+  // default: today game, else first active, else any
+  if (UI.statsGameId && byId(data.games, UI.statsGameId)) return;
+  if (data.today?.gameId && byId(data.games, data.today.gameId)) {
+    UI.statsGameId = data.today.gameId;
+    return;
+  }
+  const active = data.games.find(g => g.status === "active");
+  if (active) { UI.statsGameId = active.id; return; }
+  if (data.games[0]) UI.statsGameId = data.games[0].id;
+}
+
+function renderStatsCenter(data) {
+  const statsView = $("#statsView");
+  if (!statsView) return;
+
+  $("#statsTag").textContent = `Hoy: ${todayISO()}`;
+
+  ensureSeedStatsGame(data);
+
+  // Fill select
+  const sel = $("#statsGameSelect");
+  if (sel) {
+    const prev = sel.value;
+    const gamesSorted = data.games.slice().sort((a,b) => {
+      // active first
+      if (a.status !== b.status) return a.status === "active" ? -1 : 1;
+      // then by title
+      return String(a.title||"").localeCompare(String(b.title||""), "es");
+    });
+
+    sel.innerHTML = gamesSorted.map(g => {
+      const c = byId(data.consoles, g.consoleId);
+      const tag = g.status === "active" ? "Por pasar" : "Completado";
+      const name = `${g.title} · ${c?.name || "Sin consola"} · ${tag}`;
+      return `<option value="${g.id}" ${g.id === UI.statsGameId ? "selected" : ""}>${escapeHtml(name)}</option>`;
+    }).join("");
+
+    // preserve if possible
+    if (prev && prev !== sel.value && byId(data.games, prev)) sel.value = prev;
+  }
+
+  // Tabs state
+  statsView.querySelectorAll(".tab").forEach(tab => {
+    const id = tab.getAttribute("data-tab");
+    tab.setAttribute("aria-selected", id === UI.statsTab ? "true" : "false");
+  });
+  statsView.querySelectorAll(".panel").forEach(p => {
+    const id = p.getAttribute("data-panel");
+    p.hidden = id !== UI.statsTab;
+  });
+
+  // Panels render
+  const global = computeGlobalStats(data);
+  const now = nowMs();
+  const note = $("#statsMiniNote");
+  if (note) {
+    const s = global.daysSinceLast == null ? "Sin sesiones aún" : `Última sesión: hace ${global.daysSinceLast} día(s)`;
+    note.textContent = `${s} · ${global.sessions} sesión(es) total`;
+  }
+
+  const panelResumen = statsView.querySelector(`[data-panel="resumen"]`);
+  const panelHistorico = statsView.querySelector(`[data-panel="historico"]`);
+  const panelJuegos = statsView.querySelector(`[data-panel="juegos"]`);
+
+  // RESUMEN
+  if (panelResumen) {
+    const maxConsole = Math.max(1, ...global.byConsole.map(x => x.n));
+
+    panelResumen.innerHTML = `
+      <div class="kpi-grid" aria-label="KPIs globales">
+        <div class="kpi-card">
+          <div class="k">Racha actual</div>
+          <div class="v">${global.streakCurrent}</div>
+          <div class="s">Días seguidos con sesión</div>
+        </div>
+        <div class="kpi-card">
+          <div class="k">Racha máxima</div>
+          <div class="v">${global.streakBest}</div>
+          <div class="s">Tu mejor streak</div>
+        </div>
+        <div class="kpi-card">
+          <div class="k">Sesiones (30 días)</div>
+          <div class="v">${global.sessions30}</div>
+          <div class="s">Últimos 30 días</div>
+        </div>
+        <div class="kpi-card">
+          <div class="k">Juegos jugados</div>
+          <div class="v">${global.uniqGamesPlayed}</div>
+          <div class="s">Con al menos 1 sesión</div>
+        </div>
+      </div>
+
+      <div class="split">
+        <div class="soft-card">
+          <div class="soft-title">Uso por consola</div>
+          <div class="bars">
+            ${global.byConsole.map(x => {
+              const pct = Math.round((x.n / maxConsole) * 100);
+              return `
+                <div class="bar">
+                  <div class="label" title="${escapeHtml(x.name)}">${escapeHtml(x.name)}</div>
+                  <div class="track"><div class="fill" style="width:${pct}%;"></div></div>
+                  <div class="n">${x.n}</div>
+                </div>
+              `;
+            }).join("") || `<div class="subhint">Aún no hay sesiones para mostrar. 😶</div>`}
+          </div>
+        </div>
+
+        <div class="soft-card">
+          <div class="soft-title">Top juegos (por sesiones)</div>
+          <div class="rank">
+            ${
+              global.topGames.length
+                ? global.topGames.map((x, i) => `
+                  <div class="r" title="${escapeHtml(x.title)}">
+                    <div class="name">${i+1}. ${escapeHtml(x.title)}</div>
+                    <div class="val">${x.n} sesión(es)</div>
+                  </div>
+                `).join("")
+                : `<div class="subhint">Todavía no hay top. Juega algo, rey. 👑</div>`
+            }
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // HISTÓRICO (30 días + streak grid)
+  if (panelHistorico) {
+    const timeline = buildTimeline(data, 30);
+    const played30 = timeline.filter(x => x.played).length;
+    const gridDays = buildTimeline(data, 14);
+
+    panelHistorico.innerHTML = `
+      <div class="kpi-grid" aria-label="KPIs de histórico">
+        <div class="kpi-card">
+          <div class="k">Días con sesión (30d)</div>
+          <div class="v">${played30}</div>
+          <div class="s">De 30 días</div>
+        </div>
+        <div class="kpi-card">
+          <div class="k">Total sesiones</div>
+          <div class="v">${global.sessions}</div>
+          <div class="s">Desde el inicio</div>
+        </div>
+        <div class="kpi-card">
+          <div class="k">Juegos activos</div>
+          <div class="v">${global.activeGamesCount}</div>
+          <div class="s">Por pasar</div>
+        </div>
+        <div class="kpi-card">
+          <div class="k">Completados</div>
+          <div class="v">${global.doneGamesCount}</div>
+          <div class="s">Terminados</div>
+        </div>
+      </div>
+
+      <div class="soft-card" style="margin-bottom:12px;">
+        <div class="soft-title">Streak rápido (14 días)</div>
+        <div class="streak" aria-label="Días jugados en los últimos 14 días">
+          ${gridDays.map(d => `
+            <div class="day ${d.played ? "on" : ""}" title="${escapeHtml(d.date)} ${d.played ? "✅" : "—"}"></div>
+          `).join("")}
+        </div>
+        <div class="subhint" style="margin:10px 0 0;">
+          ${global.daysSinceLast == null ? "Todavía sin sesiones. Duele, pero se puede arreglar. 😌" : `Última sesión hace ${global.daysSinceLast} día(s).`}
+        </div>
+      </div>
+
+      <div class="soft-card">
+        <div class="soft-title">Histórico (30 días)</div>
+        <div class="history">
+          ${
+            timeline.slice().reverse().map(d => `
+              <div class="h-row">
+                <div class="dot">${d.played ? "✅" : "·"}</div>
+                <div class="date">${escapeHtml(d.date)}</div>
+                <div class="txt">${d.played ? escapeHtml(d.label) : "—"}</div>
+                <div class="meta">${d.played ? "sesión" : ""}</div>
+              </div>
+            `).join("")
+          }
+        </div>
+      </div>
+    `;
+  }
+
+  // JUEGOS (stats del juego seleccionado + botón modal)
+  if (panelJuegos) {
+    const gameId = UI.statsGameId;
+    const g = byId(data.games, gameId);
+    const c = g ? byId(data.consoles, g.consoleId) : null;
+    const s = g ? computeGameStats(data, gameId) : null;
+
+    const dates = g ? uniqueDatesFromHistoryForGame(data, gameId) : [];
+    const last10 = dates.slice(-10).reverse();
+    const avgGap = s?.avgGap != null ? `${s.avgGap.toFixed(1)} días` : "—";
+    const sinceStart = s?.daysSinceStart != null ? `${s.daysSinceStart} día(s)` : "—";
+    const sinceLast = s?.daysSinceLast != null ? `${s.daysSinceLast} día(s)` : "—";
+
+    // Small 14-day streak for that game
+    const days14 = lastNDaysISO(14);
+    const playedSet = new Set(dates);
+
+    panelJuegos.innerHTML = `
+      <div class="soft-card" style="margin-bottom:12px;">
+        <div class="soft-title">Juego seleccionado</div>
+        <div class="subhint" style="margin:0;">
+          <b>${escapeHtml(g?.title || "—")}</b> · ${escapeHtml(c?.name || "Sin consola")} · ${g?.status === "active" ? "Por pasar" : "Completado"}
+        </div>
+      </div>
+
+      <div class="kpi-grid" aria-label="KPIs del juego">
+        <div class="kpi-card">
+          <div class="k">Sesiones</div>
+          <div class="v">${s?.sessions ?? 0}</div>
+          <div class="s">Días jugados</div>
+        </div>
+        <div class="kpi-card">
+          <div class="k">Desde inicio</div>
+          <div class="v">${sinceStart}</div>
+          <div class="s">Tiempo desde primera sesión</div>
+        </div>
+        <div class="kpi-card">
+          <div class="k">Desde última</div>
+          <div class="v">${sinceLast}</div>
+          <div class="s">Tiempo desde la última</div>
+        </div>
+        <div class="kpi-card">
+          <div class="k">Racha máx</div>
+          <div class="v">${s?.streakBest ?? 0}</div>
+          <div class="s">Mejor streak del juego</div>
+        </div>
+      </div>
+
+      <div class="split">
+        <div class="soft-card">
+          <div class="soft-title">Streak 14 días (del juego)</div>
+          <div class="streak">
+            ${days14.map(d => `<div class="day ${playedSet.has(d) ? "on" : ""}" title="${escapeHtml(d)} ${playedSet.has(d) ? "✅" : "—"}"></div>`).join("")}
+          </div>
+          <div class="subhint" style="margin:10px 0 0;">Gap promedio: <b>${escapeHtml(avgGap)}</b></div>
+        </div>
+
+        <div class="soft-card">
+          <div class="soft-title">Últimas sesiones</div>
+          ${
+            last10.length
+              ? last10.map(d => `<div style="font-size:12px;opacity:.92;padding:3px 0;">✅ ${escapeHtml(d)}</div>`).join("")
+              : `<div class="subhint">Aún no lo has jugado. Hoy podría ser el día. 👀</div>`
+          }
+          <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn ghost" data-action="openGameModalStats" data-id="${escapeHtml(gameId || "")}">Abrir modal detalle</button>
+            <button class="btn ghost" data-action="jumpToMainWithThis" data-id="${escapeHtml(gameId || "")}">Volver y sugerir este</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+}
+
+/* ---------------------------
+   Render orchestration (no-save loop)
+--------------------------- */
+
+let lastSavedSnapshot = "";
+
+function commit(data, reason = "") {
+  const snap = snapshot(data);
+  if (snap && snap !== lastSavedSnapshot) {
+    save(data);
+    lastSavedSnapshot = snap;
+  }
+  // reason unused; useful if you later want debug logs.
 }
 
 function render() {
+  ensureViews();
+
   const data = load();
   const t = todayISO();
+
   todayTag.textContent = `Hoy: ${t}`;
 
-  // Ensure today suggestion exists
-  pickToday(data);
-  save(data);
+  ensureToday(data);
+
+  // commit only if load+migrate changed things or ensureToday changed today
+  commit(data);
 
   renderTodayBox(data);
   renderConsoles(data);
   renderGames(data);
   updateMainHint(data);
+
+  // Views
+  setViewMode();
+  wireTodayBoxToStats(data);
+
+  // Stats Center
+  if (UI.view === "stats") {
+    renderStatsCenter(data);
+  }
+
+  // Ensure install btn state if prompt exists
+  if (!deferredPrompt) btnInstall.hidden = true;
 }
 
 /* ---------------------------
@@ -865,7 +1327,7 @@ async function openModal({ title, bodyHtml, onOk }) {
   });
 
   if (result !== "ok") return;
-  await onOk();
+  await onOk?.();
 }
 
 async function openStatsModal(gameId) {
@@ -910,10 +1372,120 @@ async function openStatsModal(gameId) {
   await openModal({
     title: "Stats del juego",
     bodyHtml: body,
-    onOk: async () => {
-      // Modal es “dialog method=dialog”: OK no hace nada, pero lo dejamos para UX consistente
-    }
+    onOk: async () => {}
   });
+}
+
+/* ---------------------------
+   Import / Export backups
+--------------------------- */
+
+let importInput = null;
+
+function ensureImportInput() {
+  if (importInput) return importInput;
+  importInput = document.createElement("input");
+  importInput.type = "file";
+  importInput.accept = "application/json,.json";
+  importInput.style.display = "none";
+  document.body.appendChild(importInput);
+  return importInput;
+}
+
+function downloadText(filename, text, mime = "application/json") {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function exportBackup() {
+  try {
+    const data = load();
+    const d = todayISO();
+    const filename = `game-rotator-backup-${d}.json`;
+    downloadText(filename, JSON.stringify(data, null, 2));
+    toast("Backup exportado ✅");
+  } catch {
+    toast("No pude exportar el backup 😶");
+  }
+}
+
+async function importBackupFromFile(file) {
+  const text = await file.text();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    toast("Ese archivo no es JSON válido.");
+    return;
+  }
+
+  // Validación mínima
+  const looksOk =
+    parsed &&
+    typeof parsed === "object" &&
+    Array.isArray(parsed.consoles) &&
+    Array.isArray(parsed.games) &&
+    Array.isArray(parsed.history) &&
+    typeof parsed.meta === "object";
+
+  if (!looksOk) {
+    toast("Ese backup no parece de Game Rotator (estructura rara).");
+    return;
+  }
+
+  const ok = confirm(
+    "Importar backup va a REEMPLAZAR tu data actual en este dispositivo.\n\n" +
+    "Tip: exporta primero por si acaso.\n\n" +
+    "¿Seguro?"
+  );
+  if (!ok) return;
+
+  const migrated = migrate(parsed);
+  save(migrated);
+  lastSavedSnapshot = snapshot(migrated);
+  render();
+  toast("Backup importado ✅");
+}
+
+function mountBackupButtons() {
+  const topActions = document.querySelector(".top-actions");
+  if (!topActions) return;
+
+  if (document.querySelector("#btnExportBackup")) return;
+
+  const btnExport = document.createElement("button");
+  btnExport.id = "btnExportBackup";
+  btnExport.className = "btn ghost";
+  btnExport.textContent = "Exportar";
+  btnExport.title = "Descarga un backup .json";
+
+  const btnImport = document.createElement("button");
+  btnImport.id = "btnImportBackup";
+  btnImport.className = "btn ghost";
+  btnImport.textContent = "Importar";
+  btnImport.title = "Carga un backup .json";
+
+  btnExport.addEventListener("click", exportBackup);
+  btnImport.addEventListener("click", async () => {
+    const input = ensureImportInput();
+    input.value = "";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      await importBackupFromFile(file);
+    };
+    input.click();
+  });
+
+  topActions.prepend(btnImport);
+  topActions.prepend(btnExport);
 }
 
 /* ---------------------------
@@ -928,7 +1500,7 @@ btnAddConsole.addEventListener("click", async () => {
         <label>Nombre</label>
         <input id="cName" required placeholder="Ej: PS4, Xbox Series S, Switch..." />
       </div>
-      <div class="field">
+        <div class="field">
         <label>Peso (1 = normal, 2 = más frecuente, 0.5 = menos frecuente)</label>
         <input id="cWeight" type="number" step="0.25" value="1" />
       </div>
@@ -936,12 +1508,13 @@ btnAddConsole.addEventListener("click", async () => {
     onOk: () => {
       const data = load();
       const name = $("#cName").value.trim();
-      const weight = Number($("#cWeight").value || 1);
+      const weight = safeNum($("#cWeight").value, 1);
       if (!name) return;
 
-      data.consoles.push({ id: uid("c"), name, weight: isFinite(weight) ? weight : 1 });
+      data.consoles.push({ id: uid("c"), name, weight: Math.max(0.25, weight || 1) });
       data.today = null;
-      save(data);
+
+      commit(data, "addConsole");
       render();
       toast("Consola agregada ✅");
     }
@@ -986,7 +1559,6 @@ btnAddGame.addEventListener("click", async () => {
 
       if (!title || !consoleId) return;
 
-      // Rule: max 2 active per console
       if (status === "active") {
         const act = activeGamesForConsole(d, consoleId);
         if (act.length >= 2) {
@@ -1000,14 +1572,14 @@ btnAddGame.addEventListener("click", async () => {
         consoleId,
         title,
         status,
-        addedAt: Date.now(),
+        addedAt: nowMs(),
         startedAt: null,
         lastPlayed: null,
-        completedAt: status === "done" ? Date.now() : null
+        completedAt: status === "done" ? nowMs() : null
       });
 
       d.today = null;
-      save(d);
+      commit(d, "addGame");
       render();
       toast(status === "active" ? "Juego agregado (por pasar) ✅" : "Juego agregado (completado) ✅");
     }
@@ -1026,40 +1598,33 @@ btnPlayed.addEventListener("click", () => {
     return;
   }
 
-  // Save history (1 per day)
+  // Reemplaza la sesión de hoy si existía
   data.history = data.history.filter((h) => h.date !== t);
   data.history.push({
     date: t,
     consoleId: today.consoleId,
     gameId: today.gameId,
-    playedAt: Date.now()
+    playedAt: nowMs()
   });
 
-  // Update game fields
   const g = byId(data.games, today.gameId);
   if (g) {
-    g.lastPlayed = Date.now();
-    if (!g.startedAt) g.startedAt = g.lastPlayed; // “empezado” = primera sesión
+    g.lastPlayed = nowMs();
+    if (!g.startedAt) g.startedAt = g.lastPlayed;
   }
 
-  save(data);
+  commit(data, "played");
   render();
-
   pulse(todayBox);
 
-  // mini logros suaves
-  const last7 = buildLast7Timeline(data);
-  const uniqueGames7 = new Set(
-    data.history
-      .filter(h => lastNDaysISO(7).includes(h.date))
-      .map(h => h.gameId)
-  ).size;
+  const last7 = lastNDaysISO(7);
+  const uniqueGames7 = new Set(data.history.filter(h => last7.includes(h.date)).map(h => h.gameId)).size;
 
-  const msg = uniqueGames7 >= 3
-    ? `Jugaste hoy ✅ y esta semana llevas ${uniqueGames7} juegos distintos. Respeto. 🏆`
-    : "Marcado ✅ mañana evitamos repetirte lo mismo.";
-
-  toast(msg);
+  toast(
+    uniqueGames7 >= 3
+      ? `Jugaste hoy ✅ y esta semana llevas ${uniqueGames7} juegos distintos. Respeto. 🏆`
+      : "Marcado ✅ mañana evitamos repetirte lo mismo."
+  );
 });
 
 btnSwap.addEventListener("click", () => {
@@ -1076,9 +1641,9 @@ btnSwap.addEventListener("click", () => {
   }
 
   pickToday(data, { forceNew: true });
-  save(data);
-  render();
 
+  commit(data, "swap");
+  render();
   flipSwap(todayBox);
 
   const n = data.skips[t]?.length || 0;
@@ -1099,10 +1664,11 @@ btnComplete.addEventListener("click", () => {
   if (!g) return;
 
   g.status = "done";
-  g.completedAt = Date.now();
+  g.completedAt = nowMs();
 
   data.today = null;
-  save(data);
+
+  commit(data, "complete");
   render();
 
   pulse(todayBox);
@@ -1116,7 +1682,7 @@ btnReset.addEventListener("click", () => {
   data.today = null;
   if (data.skips && data.skips[t]) data.skips[t] = [];
 
-  save(data);
+  commit(data, "reset");
   render();
 
   toast("Plan de hoy reseteado. Volvemos a girar la ruleta. 🎲");
@@ -1130,8 +1696,36 @@ document.addEventListener("click", async (e) => {
   const id = btn.getAttribute("data-id");
   const data = load();
 
-  if (action === "statsGame") {
-    await openStatsModal(id);
+  if (action === "openStatsCenter") {
+    UI.view = "stats";
+    UI.statsTab = "juegos";
+    UI.statsGameId = id || null;
+    render();
+    toast("Stats Center abierto 📊");
+    return;
+  }
+
+  if (action === "openGameModalStats") {
+    if (id) await openStatsModal(id);
+    return;
+  }
+
+  if (action === "jumpToMainWithThis") {
+    const g = byId(data.games, id);
+    if (!g) return;
+
+    // Fuerza el plan de hoy a ese juego (si es activo)
+    if (g.status !== "active") {
+      toast("Ese juego está completado. Reactívalo para sugerirlo.");
+      return;
+    }
+
+    data.today = { date: todayISO(), consoleId: g.consoleId, gameId: g.id };
+    UI.view = "main";
+    commit(data, "jumpToMainWithThis");
+    render();
+    toast("Listo. Plan ajustado a ese juego ✅");
+    pulse(todayBox);
     return;
   }
 
@@ -1140,15 +1734,14 @@ document.addEventListener("click", async (e) => {
     if (!ok) return;
 
     data.consoles = data.consoles.filter((c) => c.id !== id);
-    for (const g of data.games) {
-      if (g.consoleId === id) g.consoleId = null;
-    }
+    for (const g of data.games) if (g.consoleId === id) g.consoleId = null;
 
     data.today = null;
     pruneDanglingRefs(data);
-    save(data);
+    commit(data, "delConsole");
     render();
     toast("Consola borrada 🗑️");
+    return;
   }
 
   if (action === "editConsole") {
@@ -1164,7 +1757,7 @@ document.addEventListener("click", async (e) => {
         </div>
         <div class="field">
           <label>Peso</label>
-          <input id="cWeight" type="number" step="0.25" value="${Number(c.weight || 1)}" />
+          <input id="cWeight" type="number" step="0.25" value="${safeNum(c.weight, 1)}" />
         </div>
       `,
       onOk: () => {
@@ -1173,17 +1766,18 @@ document.addEventListener("click", async (e) => {
         if (!cc) return;
 
         const name = $("#cName").value.trim();
-        const weight = Number($("#cWeight").value || 1);
+        const weight = safeNum($("#cWeight").value, 1);
 
         if (name) cc.name = name;
-        cc.weight = isFinite(weight) ? weight : 1;
+        cc.weight = Math.max(0.25, weight || 1);
 
         d.today = null;
-        save(d);
+        commit(d, "editConsole");
         render();
         toast("Consola actualizada ✅");
       }
     });
+    return;
   }
 
   if (action === "delGame") {
@@ -1202,9 +1796,10 @@ document.addEventListener("click", async (e) => {
     }
 
     pruneDanglingRefs(data);
-    save(data);
+    commit(data, "delGame");
     render();
     toast("Juego borrado 🗑️");
+    return;
   }
 
   if (action === "editGame") {
@@ -1245,7 +1840,6 @@ document.addEventListener("click", async (e) => {
 
         if (title) gg.title = title;
 
-        // If switching to active, validate rule 2 active per console
         if (status === "active") {
           const act = activeGamesForConsole(d, consoleId).filter((x) => x.id !== gg.id);
           if (act.length >= 2) {
@@ -1254,18 +1848,19 @@ document.addEventListener("click", async (e) => {
           }
           gg.completedAt = null;
         } else {
-          gg.completedAt = Date.now();
+          gg.completedAt = nowMs();
         }
 
-        gg.consoleId = consoleId;
+        gg.consoleId = consoleId || null;
         gg.status = status;
 
         d.today = null;
-        save(d);
+        commit(d, "editGame");
         render();
         toast("Juego actualizado ✅");
       }
     });
+    return;
   }
 
   if (action === "toggleGame") {
@@ -1274,7 +1869,7 @@ document.addEventListener("click", async (e) => {
 
     if (g.status === "active") {
       g.status = "done";
-      g.completedAt = Date.now();
+      g.completedAt = nowMs();
       toast("Marcado como completado 🏁");
     } else {
       const act = activeGamesForConsole(data, g.consoleId);
@@ -1288,8 +1883,9 @@ document.addEventListener("click", async (e) => {
     }
 
     data.today = null;
-    save(data);
+    commit(data, "toggleGame");
     render();
+    return;
   }
 });
 
@@ -1312,7 +1908,6 @@ btnInstall.addEventListener("click", async () => {
 });
 
 function showUpdateBanner(onUpdate) {
-  // banner simple sin tocar tu HTML
   let bar = document.querySelector("#updateBar");
   if (bar) return;
 
@@ -1349,44 +1944,37 @@ if ("serviceWorker" in navigator) {
     try {
       const reg = await navigator.serviceWorker.register("./sw.js");
 
-      // Si hay un SW nuevo esperando, avisa de una
       if (reg.waiting) {
-        showUpdateBanner(() => {
-          reg.waiting.postMessage({ type: "SKIP_WAITING" });
-        });
+        showUpdateBanner(() => reg.waiting?.postMessage({ type: "SKIP_WAITING" }));
       }
 
-      // Cuando se encuentre un update
       reg.addEventListener("updatefound", () => {
         const sw = reg.installing;
         if (!sw) return;
 
         sw.addEventListener("statechange", () => {
-          // installed + ya había controller => update real (no primera instalación)
           if (sw.state === "installed" && navigator.serviceWorker.controller) {
-            showUpdateBanner(() => {
-              reg.waiting?.postMessage({ type: "SKIP_WAITING" });
-            });
+            showUpdateBanner(() => reg.waiting?.postMessage({ type: "SKIP_WAITING" }));
           }
         });
       });
 
-      // Cuando el nuevo SW tome control, recargamos para servir assets nuevos
       let refreshing = false;
       navigator.serviceWorker.addEventListener("controllerchange", () => {
         if (refreshing) return;
         refreshing = true;
         location.reload();
       });
-
     } catch {
-      // silencio, la app igual funciona online sin SW
+      // La app igual vive sin SW.
     }
   });
 }
 
-
 /* ---------------------------
    Init
 --------------------------- */
+
+mountBackupButtons();
+lastSavedSnapshot = snapshot(load());
 render();
