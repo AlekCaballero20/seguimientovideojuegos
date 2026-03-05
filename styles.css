@@ -54,6 +54,9 @@
     rgba(96,165,250,.22),
     rgba(236,72,153,.18)
   );
+
+  /* Extras */
+  --tap: 44px; /* hit-area target */
 }
 
 /* =============================================================================
@@ -62,6 +65,10 @@
 *{ box-sizing: border-box; }
 
 html, body{ height: 100%; }
+
+html{
+  scroll-behavior: smooth;
+}
 
 body{
   margin: 0;
@@ -88,11 +95,20 @@ img, svg{ max-width: 100%; height: auto; }
   color: var(--text);
 }
 
+/* Links */
+a{
+  color: inherit;
+  text-decoration-color: rgba(96,165,250,.55);
+}
+a:hover{
+  text-decoration-color: rgba(96,165,250,.85);
+}
+
 /* =============================================================================
   FOCUS (accessible)
-  Nota: tu original tenía ":focus :focus-visible" (selector raro). Aquí es correcto.
 ============================================================================= */
 :focus-visible{
+  outline: none;
   box-shadow: var(--glow);
   border-color: rgba(34,197,94,.35) !important;
 }
@@ -170,7 +186,7 @@ img, svg{ max-width: 100%; height: auto; }
   gap: 10px;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap; /* por si metes Import/Export */
+  flex-wrap: wrap;
 }
 
 /* =============================================================================
@@ -262,11 +278,10 @@ img, svg{ max-width: 100%; height: auto; }
 
 /* =============================================================================
   TODAY PANEL (Hero)
-  Nota: arreglé comentarios rotos que te estaban rompiendo el CSS.
 ============================================================================= */
 .today{
   position: relative;
-  cursor: pointer; /* porque abre stats */
+  cursor: pointer;
   will-change: transform;
 
   padding: 12px;
@@ -308,7 +323,6 @@ img, svg{ max-width: 100%; height: auto; }
   filter: saturate(1.05);
 }
 
-/* Make the plan feel like a hero card when it has content */
 #todayBox:not(:empty){
   border-style: solid;
   border-color: rgba(255,255,255,.12);
@@ -414,6 +428,7 @@ img, svg{ max-width: 100%; height: auto; }
   user-select: none;
   will-change: transform;
 
+  min-height: var(--tap);
   padding: 10px 12px;
   border-radius: 12px;
 
@@ -484,9 +499,6 @@ img, svg{ max-width: 100%; height: auto; }
 #btnStats:focus-visible{
   box-shadow: 0 0 0 6px rgba(96,165,250,.14);
 }
-
-/* Slightly nicer icon spacing when you put emojis */
-.btn > span, .btn > i{ line-height: 0; }
 
 /* =============================================================================
   GRID + LISTS
@@ -570,7 +582,6 @@ img, svg{ max-width: 100%; height: auto; }
 
 .item .mini{
   min-width: 132px;
-
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -592,6 +603,23 @@ img, svg{ max-width: 100%; height: auto; }
   box-shadow: 0 0 0 1px rgba(0,0,0,.10) inset;
 }
 
+/* Optional badge variants (para cuando app.js quiera poner estados) */
+.badge.ok{
+  border-color: rgba(34,197,94,.26);
+  background: rgba(34,197,94,.12);
+  color: rgba(229,231,235,.92);
+}
+.badge.warn{
+  border-color: rgba(245,158,11,.30);
+  background: rgba(245,158,11,.12);
+  color: rgba(229,231,235,.92);
+}
+.badge.bad{
+  border-color: rgba(239,68,68,.28);
+  background: rgba(239,68,68,.10);
+  color: rgba(229,231,235,.92);
+}
+
 /* =============================================================================
   INPUTS (toolbar injected by app.js)
 ============================================================================= */
@@ -603,6 +631,8 @@ input, select, textarea{ font-family: inherit; }
   border-color: var(--line) !important;
   background: rgba(255,255,255,.04) !important;
   box-shadow: 0 0 0 1px rgba(0,0,0,.12) inset !important;
+  border-radius: 12px;
+  padding: 10px 12px;
 }
 
 #qGames{ min-height: 40px; }
@@ -619,6 +649,70 @@ input, select, textarea{ font-family: inherit; }
 /* Consistent input styling in modal too */
 .field input,
 .field select{ min-height: 42px; }
+
+/* Generic selects (like stats select) inherit consistent look */
+select{
+  color: var(--text);
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--line);
+}
+
+/* =============================================================================
+  COLLAPSIBLE (Gestión en Home)
+============================================================================= */
+.collapsible{
+  margin-top: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.02);
+  overflow: hidden;
+}
+
+.collapsible > summary{
+  list-style: none;
+  user-select: none;
+  outline: none;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  padding: 10px 12px;
+  cursor: pointer;
+
+  color: rgba(229, 231, 235, 0.92);
+  font-weight: 900;
+  font-size: 13px;
+
+  background: rgba(255,255,255,.03);
+}
+
+.collapsible > summary::-webkit-details-marker{ display: none; }
+
+.collapsible > summary:hover{
+  background: rgba(255,255,255,.05);
+}
+
+.collapsible[open]{
+  border-color: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.03);
+}
+
+.collapsible[open] > summary{
+  border-bottom: 1px solid var(--line);
+}
+
+.collapsible .chev{
+  opacity: .85;
+  transition: transform var(--t) var(--ease);
+}
+
+.collapsible[open] .chev{ transform: rotate(180deg); }
+
+.collapsible-body{
+  padding: 12px;
+}
 
 /* =============================================================================
   STATS CENTER (tabs + panels)
@@ -638,6 +732,7 @@ input, select, textarea{ font-family: inherit; }
   appearance: none;
   user-select: none;
 
+  min-height: var(--tap);
   padding: 10px 12px;
   border-radius: 999px;
 
@@ -1031,7 +1126,7 @@ dialog{
 }
 
 /* =============================================================================
-  <details> (Ayuda rápida)
+  <details> (Ayuda rápida general)
 ============================================================================= */
 details{
   border: 1px solid var(--line);

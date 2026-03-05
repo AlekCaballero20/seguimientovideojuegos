@@ -28,27 +28,92 @@
       content="Rotación diaria de consolas y juegos, con histórico y stats. LocalStorage-only."
     />
 
-    <!-- Preload (micro-boost; no hace milagros, pero ayuda) -->
+    <!-- Preload -->
     <link rel="preload" href="./styles.css" as="style" />
     <link rel="stylesheet" href="./styles.css" />
-  </head>
 
-  <body>
-    <!-- Accesibilidad: saltar directo al contenido -->
-    <a
-      href="#main"
-      style="
+    <!-- Helper: visually hidden -->
+    <style>
+      .sr-only {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        padding: 0 !important;
+        margin: -1px !important;
+        overflow: hidden !important;
+        clip: rect(0, 0, 0, 0) !important;
+        white-space: nowrap !important;
+        border: 0 !important;
+      }
+
+      /* Skip link without inline chaos */
+      .skip-link {
         position: absolute;
         left: -9999px;
         top: auto;
         width: 1px;
         height: 1px;
         overflow: hidden;
-      "
-      onfocus="this.style.left='12px';this.style.top='12px';this.style.width='auto';this.style.height='auto';this.style.padding='10px 12px';this.style.background='rgba(17,24,39,.95)';this.style.border='1px solid rgba(255,255,255,.12)';this.style.borderRadius='12px';this.style.zIndex='9999';this.style.boxShadow='0 12px 30px rgba(0,0,0,.45)';"
-    >
-      Saltar al contenido
-    </a>
+      }
+      .skip-link:focus {
+        left: 12px;
+        top: 12px;
+        width: auto;
+        height: auto;
+        padding: 10px 12px;
+        background: rgba(17, 24, 39, 0.95);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        z-index: 9999;
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+      }
+
+      /* Collapsible management section (CSS light, no rompe tu styles.css) */
+      .collapsible {
+        margin-top: 12px;
+      }
+      .collapsible > summary {
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: rgba(229, 231, 235, 0.92);
+        font-weight: 800;
+        font-size: 13px;
+      }
+      .collapsible > summary::-webkit-details-marker {
+        display: none;
+      }
+      .collapsible .chev {
+        opacity: 0.85;
+        font-weight: 900;
+      }
+      .collapsible[open] .chev {
+        transform: rotate(180deg);
+      }
+      .collapsible-body {
+        margin-top: 12px;
+      }
+
+      /* Quick nav pills (sin meterle JS) */
+      .nav-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Accesibilidad: saltar directo al contenido -->
+    <a href="#main" class="skip-link">Saltar al contenido</a>
 
     <header class="top" role="banner">
       <div class="brand" aria-label="Identidad de la aplicación">
@@ -61,19 +126,15 @@
         </div>
       </div>
 
-      <div
-        class="top-actions"
-        role="group"
-        aria-label="Acciones principales"
-      >
+      <div class="top-actions" role="group" aria-label="Acciones principales">
         <!-- app.js inserta Exportar / Importar aquí (prepend) -->
 
-        <!-- NUEVO: entrada a stats (app.js le pone vida) -->
         <button
           id="btnStats"
           class="btn ghost"
           aria-label="Abrir estadísticas y histórico"
           title="Stats + histórico"
+          type="button"
         >
           📊 Stats
         </button>
@@ -83,6 +144,7 @@
           class="btn ghost"
           hidden
           aria-label="Instalar la aplicación"
+          type="button"
         >
           Instalar
         </button>
@@ -92,6 +154,7 @@
           class="btn ghost"
           title="Reinicia solo el plan de hoy"
           aria-label="Resetear plan de hoy"
+          type="button"
         >
           Reset hoy
         </button>
@@ -115,7 +178,7 @@
             <!-- render -->
           </div>
 
-          <!-- NUEVO: mini dashboard (app.js lo llena, y si no hay data se oculta) -->
+          <!-- Mini dashboard (app.js lo llena, y si no hay data se oculta) -->
           <div
             id="miniStats"
             class="mini-stats"
@@ -130,11 +193,17 @@
               id="btnPlayed"
               class="btn primary"
               aria-keyshortcuts="Enter"
+              type="button"
             >
               ✅ Jugué esto hoy
             </button>
 
-            <button id="btnSwap" class="btn" aria-keyshortcuts="S">
+            <button
+              id="btnSwap"
+              class="btn"
+              aria-keyshortcuts="S"
+              type="button"
+            >
               🔄 Cambiar sugerencia
             </button>
 
@@ -142,23 +211,22 @@
               id="btnComplete"
               class="btn danger"
               aria-keyshortcuts="C"
+              type="button"
             >
               🏁 Marcar juego completado
             </button>
           </div>
 
-          <!-- Mensajes dinámicos: app.js ya reemplaza este texto -->
           <p class="hint" id="dailyHint" aria-live="polite">
             Tip: “Jugué hoy” guarda historial y mañana evitará repetirte lo de hoy.
           </p>
 
-          <!-- Ayuda rápida (sin estorbar) -->
           <details style="margin-top: 10px">
             <summary
               style="
                 cursor: pointer;
                 color: rgba(229, 231, 235, 0.85);
-                font-weight: 700;
+                font-weight: 800;
                 font-size: 12px;
               "
             >
@@ -166,7 +234,7 @@
             </summary>
 
             <div class="subhint" style="margin-top: 8px; line-height: 1.4">
-              <div>• <b>Enter</b>: marcar “Jugué hoy” (cuando estás en la app)</div>
+              <div>• <b>Enter</b>: marcar “Jugué hoy”</div>
               <div>• <b>S</b>: cambiar sugerencia</div>
               <div>• <b>C</b>: completar juego</div>
               <div>• Click en el <b>Plan de hoy</b>: abre stats del juego</div>
@@ -179,50 +247,95 @@
           </details>
         </section>
 
-        <!-- Grid -->
-        <section class="grid" aria-label="Gestión de consolas y juegos">
-          <!-- Consolas -->
-          <section class="card" aria-labelledby="hConsoles">
-            <div class="card-head">
-              <h2 id="hConsoles">Consolas</h2>
+        <!-- ====== Gestión colapsable (menos ruido, más paz) ====== -->
+        <section class="card" aria-label="Navegación y gestión">
+          <div class="card-head">
+            <h2 style="margin: 0">Panel</h2>
+            <div class="nav-pills" role="group" aria-label="Navegación rápida">
+              <a href="#viewHome" class="btn ghost" style="text-decoration:none">
+                🏠 Home
+              </a>
               <button
-                id="btnAddConsole"
-                class="btn"
-                aria-label="Agregar consola"
+                class="btn ghost"
+                type="button"
+                onclick="document.querySelector('#btnStats')?.click()"
+                aria-label="Abrir centro de estadísticas"
               >
-                ➕ Agregar
+                📊 Stats
               </button>
+              <a
+                href="#manage"
+                class="btn ghost"
+                style="text-decoration:none"
+                aria-label="Ir a gestión de consolas y juegos"
+              >
+                ⚙️ Gestión
+              </a>
             </div>
+          </div>
 
-            <div id="consolesList" class="list" aria-live="polite"></div>
-          </section>
+          <div class="subhint" style="margin: 0">
+            Lo de abajo existe, solo no tiene que vivir abierto todo el tiempo.
+          </div>
 
-          <!-- Juegos -->
-          <section class="card" aria-labelledby="hGames">
-            <div class="card-head">
-              <h2 id="hGames">Juegos</h2>
-              <button id="btnAddGame" class="btn" aria-label="Agregar juego">
-                ➕ Agregar
-              </button>
+          <!-- CLOSED by default -->
+          <details id="manage" class="collapsible">
+            <summary aria-controls="manageBody">
+              <span>⚙️ Consolas y juegos</span>
+              <span class="chev" aria-hidden="true">▾</span>
+            </summary>
+
+            <div id="manageBody" class="collapsible-body">
+              <div class="subhint" style="margin: 0 0 10px">
+                Regla: máximo <b>2 juegos activos</b> por consola (por pasar).
+                <span style="opacity: 0.85">
+                  · Tip: usa el buscador para encontrar rápido.
+                </span>
+              </div>
+
+              <section class="grid" aria-label="Gestión de consolas y juegos">
+                <!-- Consolas -->
+                <section class="card" aria-labelledby="hConsoles">
+                  <div class="card-head">
+                    <h2 id="hConsoles">Consolas</h2>
+                    <button
+                      id="btnAddConsole"
+                      class="btn"
+                      aria-label="Agregar consola"
+                      type="button"
+                    >
+                      ➕ Agregar
+                    </button>
+                  </div>
+
+                  <div id="consolesList" class="list" aria-live="polite"></div>
+                </section>
+
+                <!-- Juegos -->
+                <section class="card" aria-labelledby="hGames">
+                  <div class="card-head">
+                    <h2 id="hGames">Juegos</h2>
+                    <button
+                      id="btnAddGame"
+                      class="btn"
+                      aria-label="Agregar juego"
+                      type="button"
+                    >
+                      ➕ Agregar
+                    </button>
+                  </div>
+
+                  <!-- app.js agrega aquí arriba su mini toolbar (buscador + filtro) -->
+                  <div id="gamesList" class="list" aria-live="polite"></div>
+                </section>
+              </section>
             </div>
-
-            <div class="subhint">
-              Regla: máximo <b>2 juegos activos</b> por consola (por pasar).
-              <span style="opacity: 0.85">
-                · Tip: usa el buscador para encontrar rápido.
-              </span>
-            </div>
-
-            <!-- app.js agrega aquí arriba su mini toolbar (buscador + filtro) -->
-            <div id="gamesList" class="list" aria-live="polite"></div>
-          </section>
+          </details>
         </section>
       </section>
 
       <!-- =========================
-           STATS CENTER (nuevo)
-           - Sin archivos nuevos.
-           - app.js controla show/hide y render.
+           STATS CENTER
       ========================== -->
       <section
         id="viewStats"
@@ -235,7 +348,7 @@
             <div style="display: flex; flex-direction: column; gap: 2px">
               <h2 id="hStats">Centro de estadísticas</h2>
               <div class="subhint" style="margin: 0">
-                Stats globales, rachas y un histórico que no da pena. (Por fin.)
+                Stats globales, rachas y un histórico que no da pena.
               </div>
             </div>
 
@@ -248,6 +361,7 @@
                 class="btn ghost"
                 aria-label="Volver al inicio"
                 title="Volver"
+                type="button"
               >
                 ← Volver
               </button>
@@ -262,6 +376,7 @@
               role="tab"
               aria-selected="true"
               aria-controls="panelOverview"
+              type="button"
             >
               🧠 Resumen
             </button>
@@ -272,6 +387,7 @@
               role="tab"
               aria-selected="false"
               aria-controls="panelHistory"
+              type="button"
             >
               🗓️ Histórico
             </button>
@@ -282,6 +398,7 @@
               role="tab"
               aria-selected="false"
               aria-controls="panelGames"
+              type="button"
             >
               🎮 Juegos
             </button>
@@ -340,8 +457,7 @@
               hidden
             >
               <div class="subhint" style="margin: 0 0 10px">
-                Tu timeline. Ideal para ver si estás jugando o solo soñando con
-                jugar.
+                Tu timeline. Ideal para ver si estás jugando o solo soñando con jugar.
               </div>
 
               <div id="historyList" class="history" aria-live="polite">
@@ -381,8 +497,7 @@
                 <div class="soft-title">Explorar un juego (stats detalladas)</div>
 
                 <div class="subhint" style="margin: 0 0 10px">
-                  Selecciona uno y te mostramos sesiones, rachas, gaps y últimos
-                  registros.
+                  Selecciona uno y te mostramos sesiones, rachas, gaps y últimos registros.
                 </div>
 
                 <div class="row" style="gap: 10px; align-items: center">
@@ -407,19 +522,12 @@
           </div>
 
           <div class="subhint" style="margin-top: 12px">
-            Todo esto sale de tu <b>LocalStorage</b>. Si lo borras, se borra tu
-            historia. Poético, pero doloroso. 🥲
+            Todo esto sale de tu <b>LocalStorage</b>. Si lo borras, se borra tu historia.
+            Poético, pero doloroso. 🥲
           </div>
         </section>
       </section>
     </main>
-
-    <footer class="foot" role="contentinfo">
-      <small>
-        LocalStorage-only. Nada sale de tu computador. Ni aunque el mundo lo
-        pida.
-      </small>
-    </footer>
 
     <!-- Modal simple -->
     <dialog id="modal" aria-labelledby="modalTitle">
@@ -428,8 +536,10 @@
         <div id="modalBody"></div>
 
         <div class="modal-actions">
-          <button value="cancel" class="btn ghost">Cancelar</button>
-          <button id="modalOk" value="ok" class="btn primary">Guardar</button>
+          <button value="cancel" class="btn ghost" type="submit">Cancelar</button>
+          <button id="modalOk" value="ok" class="btn primary" type="submit">
+            Guardar
+          </button>
         </div>
       </form>
     </dialog>
@@ -442,9 +552,7 @@
         const isTyping = (el) => {
           if (!el) return false;
           const tag = (el.tagName || "").toLowerCase();
-          return (
-            tag === "input" || tag === "textarea" || el.isContentEditable
-          );
+          return tag === "input" || tag === "textarea" || el.isContentEditable;
         };
 
         document.addEventListener(
@@ -455,23 +563,13 @@
 
             const k = (e.key || "").toLowerCase();
 
-            if (k === "enter") {
-              $("#btnPlayed")?.click();
-            }
-
-            if (k === "s") {
-              $("#btnSwap")?.click();
-            }
-
-            if (k === "c") {
-              $("#btnComplete")?.click();
-            }
+            if (k === "enter") $("#btnPlayed")?.click();
+            if (k === "s") $("#btnSwap")?.click();
+            if (k === "c") $("#btnComplete")?.click();
 
             if (k === "escape") {
-              // Si estás en Stats, volver al Home (app.js puede sobreescribir esto si quiere)
               const stats = $("#viewStats");
               const home = $("#viewHome");
-
               if (stats && home && !stats.hidden) {
                 stats.hidden = true;
                 home.hidden = false;
@@ -487,7 +585,6 @@
     <!-- App -->
     <script type="module" src="./app.js"></script>
 
-    <!-- No-JS fallback (por si alguien vive en 2009) -->
     <noscript>
       <div
         style="
@@ -502,27 +599,11 @@
           color: rgba(229, 231, 235, 0.95);
           z-index: 9999;
           box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
-          font-weight: 700;
+          font-weight: 800;
         "
       >
-        Esta app necesita JavaScript para funcionar. Sin eso, es solo un bonito
-        HTML triste. 🥲
+        Esta app necesita JavaScript para funcionar. Sin eso, es solo un bonito HTML triste. 🥲
       </div>
     </noscript>
-
-    <!-- Accesibilidad: helper visually-hidden -->
-    <style>
-      .sr-only {
-        position: absolute !important;
-        width: 1px !important;
-        height: 1px !important;
-        padding: 0 !important;
-        margin: -1px !important;
-        overflow: hidden !important;
-        clip: rect(0, 0, 0, 0) !important;
-        white-space: nowrap !important;
-        border: 0 !important;
-      }
-    </style>
   </body>
 </html>

@@ -1,12 +1,98 @@
 {
+  "id": "/game-rotator",
   "name": "Game Rotator",
   "short_name": "Rotator",
+  "description": "Planificador inteligente para rotar juegos entre tus consolas y avanzar tu backlog sin repetir siempre lo mismo.",
+
   "start_url": "./index.html",
+  "scope": "./",
+
   "display": "standalone",
+  "display_override": ["standalone", "window-controls-overlay", "minimal-ui"],
+
+  "orientation": "portrait-primary",
+
   "background_color": "#0b1020",
   "theme_color": "#111827",
+
+  "lang": "es",
+  "dir": "ltr",
+
+  "categories": [
+    "games",
+    "entertainment",
+    "productivity"
+  ],
+
   "icons": [
-    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" }
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "./icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+
+  "shortcuts": [
+    {
+      "name": "Plan de hoy",
+      "short_name": "Hoy",
+      "description": "Abrir la sugerencia de juego del día",
+      "url": "./index.html#today",
+      "icons": [
+        {
+          "src": "./icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Agregar juego",
+      "short_name": "Nuevo juego",
+      "description": "Agregar un juego al backlog",
+      "url": "./index.html#add",
+      "icons": [
+        {
+          "src": "./icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Stats Center",
+      "short_name": "Stats",
+      "description": "Ver estadísticas de juego",
+      "url": "./index.html#stats",
+      "icons": [
+        {
+          "src": "./icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+
+  "screenshots": [
+    {
+      "src": "./screenshot1.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    },
+    {
+      "src": "./screenshot2.png",
+      "sizes": "720x1280",
+      "type": "image/png"
+    }
   ]
 }

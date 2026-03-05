@@ -1,11 +1,11 @@
-/* Game Rotator — v1.6 (localStorage-only)
-   Mejoras (sin romper tu data existente):
-   - UI: "Stats Center" (sección completa) sin archivos nuevos: botón en header + vista con tabs.
-   - Stats: KPIs globales, streaks, top juegos, distribución por consola, histórico bonito.
-   - Algoritmo: prioriza juegos más “antiguos” (no jugados hace más tiempo) + fairness por consola.
-   - Render: evita guardar en loop innecesario (solo guarda cuando cambia algo).
-   - Accesibilidad: tabs con aria, navegación simple.
-   - Mantiene: Import/Export, toasts, PWA update flow, modal de stats por juego.
+/* Game Rotator — v1.7 (localStorage-only)
+   Fixes + mejoras:
+   ✅ Home más limpia: Consolas/Juegos colapsables (por defecto cerradas)
+   ✅ Botón Stats funciona siempre (existente o inyectado)
+   ✅ Marcar "✅ Jugué" desde cualquier juego (manual) sin depender de la sugerencia
+   ✅ Historial permite múltiples sesiones por día (sin borrar lo ya marcado)
+   ✅ Rendimiento: menos load() repetidos; DATA en memoria + commit inteligente
+   ✅ Mantiene compatibilidad con tu data previa (migración suave)
 */
 
 const LS_KEY = "rotator_v1";
@@ -37,10 +37,17 @@ let deferredPrompt = null;
 const UI = (window.__rotUI = window.__rotUI || {
   q: "",
   f: "all",
-  view: "main",      // main | stats
-  statsTab: "resumen", // resumen | historico | juegos
-  statsGameId: null
+  view: "main",         // main | stats
+  statsTab: "resumen",  // resumen | historico | juegos
+  statsGameId: null,
+
+  // New: secciones colapsables home
+  showConsoles: false,
+  showGames: false
 });
+
+// DATA in-memory (menos IO)
+let DATA = null;
 
 /* ---------------------------
    Utils
@@ -112,10 +119,6 @@ function activeGamesForConsole(data, consoleId) {
   return data.games.filter((g) => g.consoleId === consoleId && g.status === "active");
 }
 
-function lastAssignmentForDate(data, date) {
-  return data.history.slice().reverse().find((h) => h.date === date) || null;
-}
-
 function safeNum(n, fallback = 0) {
   const x = Number(n);
   return Number.isFinite(x) ? x : fallback;
@@ -132,7 +135,7 @@ function nowMs() {
 function seed() {
   const now = nowMs();
   const data = {
-    meta: { createdAt: now, version: "1.6" },
+    meta: { createdAt: now, version: "1.7" },
     consoles: [
       { id: uid("c"), name: "PS5", weight: 1 },
       { id: uid("c"), name: "Switch", weight: 1 }
@@ -149,7 +152,7 @@ function seed() {
         completedAt: null
       }
     ],
-    history: [], // {date, consoleId, gameId, playedAt?}
+    history: [], // {date, consoleId, gameId, playedAt}
     today: null, // {date, consoleId, gameId}
     skips: {}    // { "YYYY-MM-DD": [{consoleId, gameId}, ...] }
   };
@@ -208,7 +211,7 @@ function migrate(data) {
   hydrateGameDerivedFromHistory(data);
   pruneDanglingRefs(data);
 
-  data.meta.version = "1.6";
+  data.meta.version = "1.7";
   return data;
 }
 
@@ -226,10 +229,6 @@ function pruneDanglingRefs(data) {
       data.skips[day] = (data.skips[day] || []).filter(s => gameIds.has(s.gameId) && consoleIds.has(s.consoleId));
     }
   }
-}
-
-function lastPlayForGame(data, gameId) {
-  return data.history.slice().reverse().find(h => h.gameId === gameId) || null;
 }
 
 function hydrateGameDerivedFromHistory(data) {
@@ -428,8 +427,10 @@ function lastNDaysISO(n) {
 
 function buildTimeline(data, n = 30) {
   const days = lastNDaysISO(n);
+  // Para múltiples sesiones por día: quedarnos con la última de ese día
   const map = new Map();
   for (const h of data.history) map.set(h.date, h);
+
   return days.map(date => {
     const h = map.get(date);
     if (!h) return { date, played: false, label: "—", consoleId: null, gameId: null };
@@ -455,13 +456,16 @@ function computeGlobalStats(data) {
 
   const playedDaysSet = new Set(data.history.map(h => h.date));
   const playedDays = Array.from(playedDaysSet).sort();
-  const streakBest = longestStreak(playedDays);
-  const streakCurrent = currentStreak(playedDays);
+  const streakBest = playedDays.length ? longestStreak(playedDays) : 0;
+  const streakCurrent = playedDays.length ? currentStreak(playedDays) : 0;
 
-  const lastPlayedMs = data.history.length ? Math.max(...data.history.map(h => safeNum(h.playedAt, 0))) : null;
+  const lastPlayedMs = data.history.length
+    ? Math.max(...data.history.map(h => safeNum(h.playedAt, 0)))
+    : null;
+
   const daysSinceLast = lastPlayedMs ? diffDaysMs(now, lastPlayedMs) : null;
 
-  // Top juegos (por sesiones)
+  // Top juegos (por sesiones reales, no por días únicos)
   const countByGame = new Map();
   for (const h of data.history) countByGame.set(h.gameId, (countByGame.get(h.gameId) || 0) + 1);
   const topGames = Array.from(countByGame.entries())
@@ -469,7 +473,7 @@ function computeGlobalStats(data) {
     .sort((a,b) => b.n - a.n)
     .slice(0, 8);
 
-  // Distribución por consola (por sesiones)
+  // Distribución por consola
   const countByConsole = new Map();
   for (const h of data.history) countByConsole.set(h.consoleId, (countByConsole.get(h.consoleId) || 0) + 1);
   const byConsole = data.consoles.map(c => ({
@@ -494,7 +498,7 @@ function computeGlobalStats(data) {
 }
 
 /* ---------------------------
-   Rotation logic (prioriza lo más “antiguo”)
+   Rotation logic
 --------------------------- */
 
 function buildCandidatePairs(data) {
@@ -506,16 +510,6 @@ function buildCandidatePairs(data) {
   return pairs;
 }
 
-/*
-  scorePair: menor = mejor (se elige el más bajo)
-
-  Ideas:
-  - PRIORIDAD 1: juegos nunca jugados (dales ventaja fuerte)
-  - PRIORIDAD 2: más días desde lastPlayed = mejor (más negativo)
-  - Fairness consola: si una consola se usó mucho en últimas 14 sesiones, penaliza
-  - Peso consola: weight > 1 debería hacerlo más frecuente (reduce score)
-  - Evita status != active
-*/
 function scorePair(data, pair) {
   const g = byId(data.games, pair.gameId);
   const c = byId(data.consoles, pair.consoleId);
@@ -524,33 +518,32 @@ function scorePair(data, pair) {
   const now = nowMs();
   let score = 0;
 
-  // 1) Unplayed boost (muy fuerte)
+  // Unplayed boost
   if (!g.lastPlayed) {
     const daysSinceAdded = g.addedAt ? diffDaysMs(now, g.addedAt) : 0;
-    score -= 60;                       // prioridad heavy
-    score -= clamp(daysSinceAdded, 0, 30) * 0.6; // si lleva mucho sin tocarse, más prioridad
+    score -= 60;
+    score -= clamp(daysSinceAdded, 0, 30) * 0.6;
   } else {
-    // 2) Cuánto tiempo lleva sin jugarse
     const daysAgo = diffDaysMs(now, g.lastPlayed);
-    score -= clamp(daysAgo, 0, 120) * 0.7; // más días => score más bajo => mejor
-    if (daysAgo >= 14) score -= clamp(daysAgo - 14, 0, 60) * 0.15; // extra si está súper olvidado
+    score -= clamp(daysAgo, 0, 120) * 0.7;
+    if (daysAgo >= 14) score -= clamp(daysAgo - 14, 0, 60) * 0.15;
   }
 
-  // 3) Fairness por consola en últimas 14 sesiones
+  // Fairness consola últimas 14 sesiones
   const recent = data.history.slice(-14);
   const consoleCount = recent.filter((h) => h.consoleId === pair.consoleId).length;
   score += consoleCount * 4.2;
 
-  // 4) Peso consola (más peso => más frecuente => menor score)
+  // Peso consola
   const w = Math.max(0.25, safeNum(c.weight, 1));
   score += (1 / w) * 2.0;
 
-  // 5) Status
+  // Status
   if (g.status !== "active") score += 999;
 
-  // 6) Micro: si es el juego de ayer, penalízalo un poco (por si se cuela)
+  // Evita repetir exactamente lo de ayer si se cuela
   const y = yesterdayISO();
-  const yPick = lastAssignmentForDate(data, y);
+  const yPick = data.history.slice().reverse().find(h => h.date === y); // última sesión del día anterior
   if (yPick && yPick.gameId === pair.gameId && yPick.consoleId === pair.consoleId) {
     score += 30;
   }
@@ -580,7 +573,6 @@ function pickToday(data, { forceNew = false } = {}) {
   pairs = pairs.filter((p) => !skipped.some((s) => s.consoleId === p.consoleId && s.gameId === p.gameId));
 
   if (!pairs.length) {
-    // Si ya saltaste todo, resetea saltos
     data.skips[t] = [];
     pairs = buildCandidatePairs(data).filter((p) => {
       const g = byId(data.games, p.gameId);
@@ -588,9 +580,8 @@ function pickToday(data, { forceNew = false } = {}) {
     });
   }
 
-  // Evita repetir exactamente lo de ayer si hay alternativas
   const y = yesterdayISO();
-  const yPick = lastAssignmentForDate(data, y);
+  const yPick = data.history.slice().reverse().find(h => h.date === y);
   if (yPick) {
     const notYesterday = pairs.filter((p) => !(p.consoleId === yPick.consoleId && p.gameId === yPick.gameId));
     if (notYesterday.length) pairs = notYesterday;
@@ -672,31 +663,37 @@ function buildDailyMessage(data, todayPick) {
 }
 
 /* ---------------------------
-   UI: Views (main / stats)
+   UI: Views (main / stats) + Home Sections
 --------------------------- */
 
 function ensureViews() {
   const main = $("#main");
   if (!main) return;
 
-  // Stats button in header (sin tocar HTML)
+  // 1) Stats button: si ya existe en HTML, úsalo. Si no, inyéctalo.
   const topActions = document.querySelector(".top-actions");
-  if (topActions && !document.querySelector("#btnStats")) {
-    const b = document.createElement("button");
-    b.id = "btnStats";
-    b.className = "btn ghost";
-    b.textContent = "📊 Stats";
-    b.title = "Abrir Stats Center";
-    b.addEventListener("click", () => {
+
+  let statsBtn = document.querySelector("#btnStats");
+  if (!statsBtn && topActions) {
+    statsBtn = document.createElement("button");
+    statsBtn.id = "btnStats";
+    statsBtn.className = "btn ghost";
+    statsBtn.textContent = "📊 Stats";
+    statsBtn.title = "Abrir Stats Center";
+    topActions.appendChild(statsBtn);
+  }
+
+  // Asegurar handler (una sola vez)
+  if (statsBtn && !statsBtn.__wired) {
+    statsBtn.__wired = true;
+    statsBtn.addEventListener("click", () => {
       UI.view = UI.view === "stats" ? "main" : "stats";
       render();
       if (UI.view === "stats") toast("Stats Center abierto 📊");
     });
-    // Queda cerca de Reset/Instalar/Import/Export
-    topActions.appendChild(b);
   }
 
-  // Stats section (inserted inside <main>)
+  // 2) Stats view: inject
   if (!$("#statsView")) {
     const stats = el(`
       <section id="statsView" class="card view" hidden aria-label="Stats Center">
@@ -739,13 +736,11 @@ function ensureViews() {
       main.appendChild(stats);
     }
 
-    // Back
     stats.querySelector("#btnBackMain").addEventListener("click", () => {
       UI.view = "main";
       render();
     });
 
-    // Tabs
     stats.querySelectorAll(".tab").forEach(tab => {
       tab.addEventListener("click", () => {
         UI.statsTab = tab.getAttribute("data-tab") || "resumen";
@@ -753,33 +748,86 @@ function ensureViews() {
       });
     });
 
-    // Game select
     stats.querySelector("#statsGameSelect").addEventListener("change", (e) => {
       UI.statsGameId = e.target.value || null;
       render();
     });
   }
+
+  // 3) Home Sections: Consolas + Juegos colapsables (sin tocar HTML original)
+  // Envolvemos el grid en un contenedor colapsable por sección.
+  const grid = main.querySelector(".grid");
+  if (grid && !main.querySelector("#homeSections")) {
+    // Crear wrapper card para secciones
+    const sectionsCard = el(`
+      <section id="homeSections" class="card">
+        <div class="card-head">
+          <h2>Gestión</h2>
+          <span class="tag">Opcional</span>
+        </div>
+        <div class="subhint" style="margin:0 0 10px;">
+          Si no quieres ver listas gigantes todo el tiempo, aquí se guardan detrás de un clic. 👌
+        </div>
+
+        <details class="collapsible" id="secConsoles">
+          <summary>
+            <span>🎮 Consolas</span>
+            <span class="chev">▾</span>
+          </summary>
+          <div class="collapsible-body" id="secConsolesBody"></div>
+        </details>
+
+        <details class="collapsible" id="secGames">
+          <summary>
+            <span>🕹️ Juegos</span>
+            <span class="chev">▾</span>
+          </summary>
+          <div class="collapsible-body" id="secGamesBody"></div>
+        </details>
+      </section>
+    `);
+
+    // Insert sectionsCard where grid was, then move grid cards inside
+    grid.insertAdjacentElement("beforebegin", sectionsCard);
+
+    const secConsolesBody = sectionsCard.querySelector("#secConsolesBody");
+    const secGamesBody = sectionsCard.querySelector("#secGamesBody");
+
+    // grid probably has 2 cards: one for consoles, one for games
+    const cards = Array.from(grid.querySelectorAll(":scope > .card"));
+    if (cards[0]) secConsolesBody.appendChild(cards[0]);
+    if (cards[1]) secGamesBody.appendChild(cards[1]);
+
+    // remove empty grid wrapper
+    grid.remove();
+
+    // Restore open state from UI
+    const dCon = sectionsCard.querySelector("#secConsoles");
+    const dGam = sectionsCard.querySelector("#secGames");
+    dCon.open = !!UI.showConsoles;
+    dGam.open = !!UI.showGames;
+
+    dCon.addEventListener("toggle", () => { UI.showConsoles = dCon.open; });
+    dGam.addEventListener("toggle", () => { UI.showGames = dGam.open; });
+  }
 }
 
 function setViewMode() {
   const statsView = $("#statsView");
-  const grid = document.querySelector(".grid");
   const planCard = document.querySelector("#hPlan")?.closest?.(".card");
+  const sections = document.querySelector("#homeSections");
 
-  if (!statsView || !grid || !planCard) return;
+  if (!statsView || !planCard) return;
 
   const isStats = UI.view === "stats";
   statsView.hidden = !isStats;
 
-  // Main content toggles
-  grid.hidden = isStats;
-  // Plan card stays visible in main; in stats view keep it visible but less priority? We'll hide actions? Nope: simple, hide plan too.
   planCard.hidden = isStats;
+  if (sections) sections.hidden = isStats;
 }
 
 function wireTodayBoxToStats(data) {
   // Click on plan opens Stats Center + selects today game
-  const t = todayISO();
   const today = data.today;
   if (todayBox && today?.gameId && today?.consoleId) {
     todayBox.onclick = () => {
@@ -807,7 +855,7 @@ function renderTodayBox(data) {
       <div class="kv">
         <span class="pill">No hay plan todavía 😶</span>
       </div>
-      <p class="hint">Agrega consolas y pon 1-2 juegos activos por consola para que el rotador funcione.</p>
+      <p class="hint">Agrega consolas y pon 1–2 juegos activos por consola para que el rotador funcione.</p>
     `;
     return;
   }
@@ -820,7 +868,7 @@ function renderTodayBox(data) {
   const lastPlayedStr = g?.lastPlayed ? `${new Date(g.lastPlayed).toLocaleString("es-CO")}` : "Nunca";
   const sinceStart = stats.daysSinceStart != null ? `${stats.daysSinceStart} día(s) desde que lo empezaste` : "Aún no lo has empezado";
   const sinceLast = stats.daysSinceLast != null ? `· ${stats.daysSinceLast} día(s) desde la última vez` : "";
-  const sessions = `· ${stats.sessions} sesión(es)`;
+  const sessions = `· ${stats.sessions} día(s) jugado`;
   const streak = stats.sessions ? `· Racha máx: ${stats.streakBest}` : "";
 
   const timeline7 = buildTimeline(data, 7)
@@ -835,7 +883,6 @@ function renderTodayBox(data) {
     })
     .join("");
 
-  // Mini KPIs (nice with your CSS .mini-stats)
   const global = computeGlobalStats(data);
   const mini = `
     <div class="mini-stats" aria-label="Mini estadísticas rápidas">
@@ -850,7 +897,7 @@ function renderTodayBox(data) {
     <div class="kv">
       <span class="pill">Consola: <b>${escapeHtml(c?.name || "—")}</b></span>
       <span class="pill">Juego: <b>${escapeHtml(g?.title || "—")}</b></span>
-      <span class="pill">Estado: <b>${g?.status === "active" ? "Por pasar" : "—"}</b></span>
+      <span class="pill">Estado: <b>${g?.status === "active" ? "Por pasar" : "Completado"}</b></span>
     </div>
 
     <div class="subhint">
@@ -876,7 +923,13 @@ function renderConsoles(data) {
   consolesList.innerHTML = "";
   for (const c of data.consoles) {
     const activeCount = activeGamesForConsole(data, c.id).length;
-    const last = data.history.slice().reverse().find((h) => h.consoleId === c.id);
+
+    // última sesión de esa consola (por playedAt)
+    const last = data.history
+      .slice()
+      .filter(h => h.consoleId === c.id)
+      .sort((a,b) => safeNum(b.playedAt, 0) - safeNum(a.playedAt, 0))[0] || null;
+
     const lastStr = last ? last.date : "—";
 
     consolesList.appendChild(
@@ -904,13 +957,11 @@ function renderGames(data) {
     <div class="item" style="align-items:center;">
       <div class="meta" style="width:100%;">
         <div class="title">Explorar juegos</div>
-        <div class="sub">Filtra y revisa stats rápido. (Sí, ahora esto es serio.)</div>
+        <div class="sub">Ahora puedes marcar "✅ Jugué" desde aquí sin depender del plan.</div>
       </div>
       <div class="mini" style="gap:10px;">
-        <input id="qGames" placeholder="Buscar..."
-          style="padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:#e5e7eb;min-width:180px;outline:none;" />
-        <select id="filterGames"
-          style="padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:#e5e7eb;outline:none;">
+        <input id="qGames" placeholder="Buscar..." />
+        <select id="filterGames">
           <option value="all">Todos</option>
           <option value="active">Por pasar</option>
           <option value="done">Completados</option>
@@ -926,13 +977,19 @@ function renderGames(data) {
   $q.value = UI.q;
   $f.value = UI.f;
 
-  const apply = () => {
-    UI.q = $q.value.trim().toLowerCase();
-    UI.f = $f.value;
-    render(); // simple (sí, recrea toolbar, pero ok)
+  // Mejor: no re-render global por cada letra, solo re-render de games con throttling mini
+  let tmr = null;
+  const schedule = () => {
+    clearTimeout(tmr);
+    tmr = setTimeout(() => {
+      UI.q = $q.value.trim().toLowerCase();
+      UI.f = $f.value;
+      render(); // simple, estable, suficiente
+    }, 60);
   };
-  $q.oninput = apply;
-  $f.onchange = apply;
+
+  $q.oninput = schedule;
+  $f.onchange = schedule;
 
   let list = data.games.slice();
 
@@ -941,7 +998,7 @@ function renderGames(data) {
   if (UI.f === "done") list = list.filter(g => g.status === "done");
   if (UI.f === "unplayed") list = list.filter(g => !g.lastPlayed && g.status === "active");
 
-  // Sorting: never-played first, then longest time since last played (oldest first)
+  // Sorting: never-played first, then más tiempo sin jugar
   list.sort((a, b) => {
     const au = !a.lastPlayed ? 1 : 0;
     const bu = !b.lastPlayed ? 1 : 0;
@@ -949,7 +1006,7 @@ function renderGames(data) {
 
     const ad = a.lastPlayed ? diffDaysMs(nowMs(), a.lastPlayed) : 9999;
     const bd = b.lastPlayed ? diffDaysMs(nowMs(), b.lastPlayed) : 9999;
-    return bd - ad; // more days ago => first
+    return bd - ad;
   });
 
   for (const g of list) {
@@ -960,6 +1017,9 @@ function renderGames(data) {
     const extra = g.status === "active"
       ? (!g.lastPlayed ? "· Nunca jugado 👀" : `· Hace ${stats.daysSinceLast ?? "?"} día(s)`)
       : (g.completedAt ? `· ${new Date(g.completedAt).toLocaleDateString("es-CO")}` : "");
+
+    // ✅ Nuevo: botón "Jugué" manual (solo si activo; si está done igual puedes marcar, pero es raro)
+    const canManualPlay = true;
 
     gamesList.appendChild(
       el(`
@@ -974,6 +1034,7 @@ function renderGames(data) {
           </div>
           <div class="mini">
             <span class="badge">${statusLabel}</span>
+            ${canManualPlay ? `<button class="btn primary" data-action="markPlayedManual" data-id="${g.id}">✅ Jugué</button>` : ""}
             <button class="btn ghost" data-action="openStatsCenter" data-id="${g.id}">📊 Stats</button>
             <button class="btn ghost" data-action="toggleGame" data-id="${g.id}">
               ${g.status === "active" ? "Completar" : "Reactivar"}
@@ -985,12 +1046,6 @@ function renderGames(data) {
       `)
     );
   }
-
-  Array.from(gamesList.querySelectorAll(".item")).slice(1).forEach((node, i) => {
-    node.animate([{ opacity: 0, transform: "translateY(4px)" }, { opacity: 1, transform: "translateY(0)" }], {
-      duration: 160 + i * 12, easing: "ease-out"
-    });
-  });
 }
 
 function updateMainHint(data) {
@@ -1005,7 +1060,6 @@ function ensureToday(data) {
 }
 
 function ensureSeedStatsGame(data) {
-  // default: today game, else first active, else any
   if (UI.statsGameId && byId(data.games, UI.statsGameId)) return;
   if (data.today?.gameId && byId(data.games, data.today.gameId)) {
     UI.statsGameId = data.today.gameId;
@@ -1024,14 +1078,11 @@ function renderStatsCenter(data) {
 
   ensureSeedStatsGame(data);
 
-  // Fill select
   const sel = $("#statsGameSelect");
   if (sel) {
     const prev = sel.value;
     const gamesSorted = data.games.slice().sort((a,b) => {
-      // active first
       if (a.status !== b.status) return a.status === "active" ? -1 : 1;
-      // then by title
       return String(a.title||"").localeCompare(String(b.title||""), "es");
     });
 
@@ -1042,11 +1093,9 @@ function renderStatsCenter(data) {
       return `<option value="${g.id}" ${g.id === UI.statsGameId ? "selected" : ""}>${escapeHtml(name)}</option>`;
     }).join("");
 
-    // preserve if possible
     if (prev && prev !== sel.value && byId(data.games, prev)) sel.value = prev;
   }
 
-  // Tabs state
   statsView.querySelectorAll(".tab").forEach(tab => {
     const id = tab.getAttribute("data-tab");
     tab.setAttribute("aria-selected", id === UI.statsTab ? "true" : "false");
@@ -1056,9 +1105,7 @@ function renderStatsCenter(data) {
     p.hidden = id !== UI.statsTab;
   });
 
-  // Panels render
   const global = computeGlobalStats(data);
-  const now = nowMs();
   const note = $("#statsMiniNote");
   if (note) {
     const s = global.daysSinceLast == null ? "Sin sesiones aún" : `Última sesión: hace ${global.daysSinceLast} día(s)`;
@@ -1069,32 +1116,14 @@ function renderStatsCenter(data) {
   const panelHistorico = statsView.querySelector(`[data-panel="historico"]`);
   const panelJuegos = statsView.querySelector(`[data-panel="juegos"]`);
 
-  // RESUMEN
   if (panelResumen) {
     const maxConsole = Math.max(1, ...global.byConsole.map(x => x.n));
-
     panelResumen.innerHTML = `
       <div class="kpi-grid" aria-label="KPIs globales">
-        <div class="kpi-card">
-          <div class="k">Racha actual</div>
-          <div class="v">${global.streakCurrent}</div>
-          <div class="s">Días seguidos con sesión</div>
-        </div>
-        <div class="kpi-card">
-          <div class="k">Racha máxima</div>
-          <div class="v">${global.streakBest}</div>
-          <div class="s">Tu mejor streak</div>
-        </div>
-        <div class="kpi-card">
-          <div class="k">Sesiones (30 días)</div>
-          <div class="v">${global.sessions30}</div>
-          <div class="s">Últimos 30 días</div>
-        </div>
-        <div class="kpi-card">
-          <div class="k">Juegos jugados</div>
-          <div class="v">${global.uniqGamesPlayed}</div>
-          <div class="s">Con al menos 1 sesión</div>
-        </div>
+        <div class="kpi-card"><div class="k">Racha actual</div><div class="v">${global.streakCurrent}</div><div class="s">Días seguidos con sesión</div></div>
+        <div class="kpi-card"><div class="k">Racha máxima</div><div class="v">${global.streakBest}</div><div class="s">Tu mejor streak</div></div>
+        <div class="kpi-card"><div class="k">Sesiones (30 días)</div><div class="v">${global.sessions30}</div><div class="s">Últimos 30 días</div></div>
+        <div class="kpi-card"><div class="k">Juegos jugados</div><div class="v">${global.uniqGamesPlayed}</div><div class="s">Con al menos 1 sesión</div></div>
       </div>
 
       <div class="split">
@@ -1133,7 +1162,6 @@ function renderStatsCenter(data) {
     `;
   }
 
-  // HISTÓRICO (30 días + streak grid)
   if (panelHistorico) {
     const timeline = buildTimeline(data, 30);
     const played30 = timeline.filter(x => x.played).length;
@@ -1141,37 +1169,19 @@ function renderStatsCenter(data) {
 
     panelHistorico.innerHTML = `
       <div class="kpi-grid" aria-label="KPIs de histórico">
-        <div class="kpi-card">
-          <div class="k">Días con sesión (30d)</div>
-          <div class="v">${played30}</div>
-          <div class="s">De 30 días</div>
-        </div>
-        <div class="kpi-card">
-          <div class="k">Total sesiones</div>
-          <div class="v">${global.sessions}</div>
-          <div class="s">Desde el inicio</div>
-        </div>
-        <div class="kpi-card">
-          <div class="k">Juegos activos</div>
-          <div class="v">${global.activeGamesCount}</div>
-          <div class="s">Por pasar</div>
-        </div>
-        <div class="kpi-card">
-          <div class="k">Completados</div>
-          <div class="v">${global.doneGamesCount}</div>
-          <div class="s">Terminados</div>
-        </div>
+        <div class="kpi-card"><div class="k">Días con sesión (30d)</div><div class="v">${played30}</div><div class="s">De 30 días</div></div>
+        <div class="kpi-card"><div class="k">Total sesiones</div><div class="v">${global.sessions}</div><div class="s">Desde el inicio</div></div>
+        <div class="kpi-card"><div class="k">Juegos activos</div><div class="v">${global.activeGamesCount}</div><div class="s">Por pasar</div></div>
+        <div class="kpi-card"><div class="k">Completados</div><div class="v">${global.doneGamesCount}</div><div class="s">Terminados</div></div>
       </div>
 
       <div class="soft-card" style="margin-bottom:12px;">
         <div class="soft-title">Streak rápido (14 días)</div>
         <div class="streak" aria-label="Días jugados en los últimos 14 días">
-          ${gridDays.map(d => `
-            <div class="day ${d.played ? "on" : ""}" title="${escapeHtml(d.date)} ${d.played ? "✅" : "—"}"></div>
-          `).join("")}
+          ${gridDays.map(d => `<div class="day ${d.played ? "on" : ""}" title="${escapeHtml(d.date)} ${d.played ? "✅" : "—"}"></div>`).join("")}
         </div>
         <div class="subhint" style="margin:10px 0 0;">
-          ${global.daysSinceLast == null ? "Todavía sin sesiones. Duele, pero se puede arreglar. 😌" : `Última sesión hace ${global.daysSinceLast} día(s).`}
+          ${global.daysSinceLast == null ? "Todavía sin sesiones. Se arregla. 😌" : `Última sesión hace ${global.daysSinceLast} día(s).`}
         </div>
       </div>
 
@@ -1193,7 +1203,6 @@ function renderStatsCenter(data) {
     `;
   }
 
-  // JUEGOS (stats del juego seleccionado + botón modal)
   if (panelJuegos) {
     const gameId = UI.statsGameId;
     const g = byId(data.games, gameId);
@@ -1206,7 +1215,6 @@ function renderStatsCenter(data) {
     const sinceStart = s?.daysSinceStart != null ? `${s.daysSinceStart} día(s)` : "—";
     const sinceLast = s?.daysSinceLast != null ? `${s.daysSinceLast} día(s)` : "—";
 
-    // Small 14-day streak for that game
     const days14 = lastNDaysISO(14);
     const playedSet = new Set(dates);
 
@@ -1219,26 +1227,10 @@ function renderStatsCenter(data) {
       </div>
 
       <div class="kpi-grid" aria-label="KPIs del juego">
-        <div class="kpi-card">
-          <div class="k">Sesiones</div>
-          <div class="v">${s?.sessions ?? 0}</div>
-          <div class="s">Días jugados</div>
-        </div>
-        <div class="kpi-card">
-          <div class="k">Desde inicio</div>
-          <div class="v">${sinceStart}</div>
-          <div class="s">Tiempo desde primera sesión</div>
-        </div>
-        <div class="kpi-card">
-          <div class="k">Desde última</div>
-          <div class="v">${sinceLast}</div>
-          <div class="s">Tiempo desde la última</div>
-        </div>
-        <div class="kpi-card">
-          <div class="k">Racha máx</div>
-          <div class="v">${s?.streakBest ?? 0}</div>
-          <div class="s">Mejor streak del juego</div>
-        </div>
+        <div class="kpi-card"><div class="k">Días jugados</div><div class="v">${s?.sessions ?? 0}</div><div class="s">Días con sesión</div></div>
+        <div class="kpi-card"><div class="k">Desde inicio</div><div class="v">${sinceStart}</div><div class="s">Tiempo desde primera sesión</div></div>
+        <div class="kpi-card"><div class="k">Desde última</div><div class="v">${sinceLast}</div><div class="s">Tiempo desde la última</div></div>
+        <div class="kpi-card"><div class="k">Racha máx</div><div class="v">${s?.streakBest ?? 0}</div><div class="s">Mejor streak del juego</div></div>
       </div>
 
       <div class="split">
@@ -1273,44 +1265,39 @@ function renderStatsCenter(data) {
 
 let lastSavedSnapshot = "";
 
-function commit(data, reason = "") {
-  const snap = snapshot(data);
+function commit(reason = "") {
+  const snap = snapshot(DATA);
   if (snap && snap !== lastSavedSnapshot) {
-    save(data);
+    save(DATA);
     lastSavedSnapshot = snap;
   }
-  // reason unused; useful if you later want debug logs.
+  // reason útil si luego quieres debug logs
 }
 
 function render() {
+  if (!DATA) DATA = load();
+
   ensureViews();
 
-  const data = load();
   const t = todayISO();
+  if (todayTag) todayTag.textContent = `Hoy: ${t}`;
 
-  todayTag.textContent = `Hoy: ${t}`;
+  ensureToday(DATA);
+  commit("ensureToday");
 
-  ensureToday(data);
+  renderTodayBox(DATA);
+  renderConsoles(DATA);
+  renderGames(DATA);
+  updateMainHint(DATA);
 
-  // commit only if load+migrate changed things or ensureToday changed today
-  commit(data);
-
-  renderTodayBox(data);
-  renderConsoles(data);
-  renderGames(data);
-  updateMainHint(data);
-
-  // Views
   setViewMode();
-  wireTodayBoxToStats(data);
+  wireTodayBoxToStats(DATA);
 
-  // Stats Center
   if (UI.view === "stats") {
-    renderStatsCenter(data);
+    renderStatsCenter(DATA);
   }
 
-  // Ensure install btn state if prompt exists
-  if (!deferredPrompt) btnInstall.hidden = true;
+  if (!deferredPrompt && btnInstall) btnInstall.hidden = true;
 }
 
 /* ---------------------------
@@ -1331,14 +1318,13 @@ async function openModal({ title, bodyHtml, onOk }) {
 }
 
 async function openStatsModal(gameId) {
-  const data = load();
-  const g = byId(data.games, gameId);
+  const g = byId(DATA.games, gameId);
   if (!g) return;
 
-  const c = byId(data.consoles, g.consoleId);
-  const s = computeGameStats(data, gameId);
+  const c = byId(DATA.consoles, g.consoleId);
+  const s = computeGameStats(DATA, gameId);
 
-  const dates = uniqueDatesFromHistoryForGame(data, gameId);
+  const dates = uniqueDatesFromHistoryForGame(DATA, gameId);
   const last10 = dates.slice(-10).reverse();
 
   const avgGap = s.avgGap != null ? `${s.avgGap.toFixed(1)} días` : "—";
@@ -1351,7 +1337,7 @@ async function openStatsModal(gameId) {
     </div>
 
     <div class="kv" style="gap:8px;">
-      <span class="pill">Sesiones: <b>${s.sessions}</b></span>
+      <span class="pill">Días jugados: <b>${s.sessions}</b></span>
       <span class="pill">Desde inicio: <b>${sinceStart}</b></span>
       <span class="pill">Desde última: <b>${sinceLast}</b></span>
       <span class="pill">Racha actual: <b>${s.streakCurrent}</b></span>
@@ -1406,10 +1392,9 @@ function downloadText(filename, text, mime = "application/json") {
 
 function exportBackup() {
   try {
-    const data = load();
     const d = todayISO();
     const filename = `game-rotator-backup-${d}.json`;
-    downloadText(filename, JSON.stringify(data, null, 2));
+    downloadText(filename, JSON.stringify(DATA, null, 2));
     toast("Backup exportado ✅");
   } catch {
     toast("No pude exportar el backup 😶");
@@ -1426,7 +1411,6 @@ async function importBackupFromFile(file) {
     return;
   }
 
-  // Validación mínima
   const looksOk =
     parsed &&
     typeof parsed === "object" &&
@@ -1447,9 +1431,9 @@ async function importBackupFromFile(file) {
   );
   if (!ok) return;
 
-  const migrated = migrate(parsed);
-  save(migrated);
-  lastSavedSnapshot = snapshot(migrated);
+  DATA = migrate(parsed);
+  save(DATA);
+  lastSavedSnapshot = snapshot(DATA);
   render();
   toast("Backup importado ✅");
 }
@@ -1489,10 +1473,40 @@ function mountBackupButtons() {
 }
 
 /* ---------------------------
-   Actions
+   Core actions helpers
 --------------------------- */
 
-btnAddConsole.addEventListener("click", async () => {
+function recordPlayed(gameId, { alsoSetToday = false } = {}) {
+  const g = byId(DATA.games, gameId);
+  if (!g) return false;
+
+  const t = todayISO();
+  const playedAt = nowMs();
+
+  // Permitimos múltiples sesiones por día:
+  DATA.history.push({
+    date: t,
+    consoleId: g.consoleId,
+    gameId: g.id,
+    playedAt
+  });
+
+  g.lastPlayed = playedAt;
+  if (!g.startedAt) g.startedAt = playedAt;
+
+  if (alsoSetToday) {
+    DATA.today = { date: t, consoleId: g.consoleId, gameId: g.id };
+  }
+
+  commit("recordPlayed");
+  return true;
+}
+
+/* ---------------------------
+   Actions (buttons)
+--------------------------- */
+
+btnAddConsole?.addEventListener("click", async () => {
   await openModal({
     title: "Agregar consola",
     bodyHtml: `
@@ -1500,35 +1514,33 @@ btnAddConsole.addEventListener("click", async () => {
         <label>Nombre</label>
         <input id="cName" required placeholder="Ej: PS4, Xbox Series S, Switch..." />
       </div>
-        <div class="field">
+      <div class="field">
         <label>Peso (1 = normal, 2 = más frecuente, 0.5 = menos frecuente)</label>
         <input id="cWeight" type="number" step="0.25" value="1" />
       </div>
     `,
     onOk: () => {
-      const data = load();
       const name = $("#cName").value.trim();
       const weight = safeNum($("#cWeight").value, 1);
       if (!name) return;
 
-      data.consoles.push({ id: uid("c"), name, weight: Math.max(0.25, weight || 1) });
-      data.today = null;
+      DATA.consoles.push({ id: uid("c"), name, weight: Math.max(0.25, weight || 1) });
+      DATA.today = null;
 
-      commit(data, "addConsole");
+      commit("addConsole");
       render();
       toast("Consola agregada ✅");
     }
   });
 });
 
-btnAddGame.addEventListener("click", async () => {
-  const data = load();
-  if (!data.consoles.length) {
+btnAddGame?.addEventListener("click", async () => {
+  if (!DATA.consoles.length) {
     toast("Primero agrega al menos una consola 😌");
     return;
   }
 
-  const options = data.consoles
+  const options = DATA.consoles
     .map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`)
     .join("");
 
@@ -1552,7 +1564,6 @@ btnAddGame.addEventListener("click", async () => {
       </div>
     `,
     onOk: () => {
-      const d = load();
       const title = $("#gTitle").value.trim();
       const consoleId = $("#gConsole").value;
       const status = $("#gStatus").value;
@@ -1560,14 +1571,14 @@ btnAddGame.addEventListener("click", async () => {
       if (!title || !consoleId) return;
 
       if (status === "active") {
-        const act = activeGamesForConsole(d, consoleId);
+        const act = activeGamesForConsole(DATA, consoleId);
         if (act.length >= 2) {
           toast("Esa consola ya tiene 2 juegos activos. Completa uno primero. 😌");
           return;
         }
       }
 
-      d.games.push({
+      DATA.games.push({
         id: uid("g"),
         consoleId,
         title,
@@ -1578,47 +1589,31 @@ btnAddGame.addEventListener("click", async () => {
         completedAt: status === "done" ? nowMs() : null
       });
 
-      d.today = null;
-      commit(d, "addGame");
+      DATA.today = null;
+      commit("addGame");
       render();
       toast(status === "active" ? "Juego agregado (por pasar) ✅" : "Juego agregado (completado) ✅");
     }
   });
 });
 
-btnPlayed.addEventListener("click", () => {
-  const data = load();
-  pickToday(data);
+btnPlayed?.addEventListener("click", () => {
+  pickToday(DATA);
 
-  const t = todayISO();
-  const today = data.today;
-
+  const today = DATA.today;
   if (!today?.consoleId || !today?.gameId) {
     toast("No hay plan para marcar. Agrega consolas/juegos primero.");
     return;
   }
 
-  // Reemplaza la sesión de hoy si existía
-  data.history = data.history.filter((h) => h.date !== t);
-  data.history.push({
-    date: t,
-    consoleId: today.consoleId,
-    gameId: today.gameId,
-    playedAt: nowMs()
-  });
+  // Ahora no borra el registro del día: agrega una sesión más
+  recordPlayed(today.gameId, { alsoSetToday: true });
 
-  const g = byId(data.games, today.gameId);
-  if (g) {
-    g.lastPlayed = nowMs();
-    if (!g.startedAt) g.startedAt = g.lastPlayed;
-  }
-
-  commit(data, "played");
   render();
   pulse(todayBox);
 
   const last7 = lastNDaysISO(7);
-  const uniqueGames7 = new Set(data.history.filter(h => last7.includes(h.date)).map(h => h.gameId)).size;
+  const uniqueGames7 = new Set(DATA.history.filter(h => last7.includes(h.date)).map(h => h.gameId)).size;
 
   toast(
     uniqueGames7 >= 3
@@ -1627,66 +1622,66 @@ btnPlayed.addEventListener("click", () => {
   );
 });
 
-btnSwap.addEventListener("click", () => {
-  const data = load();
+btnSwap?.addEventListener("click", () => {
   const t = todayISO();
 
-  pickToday(data);
+  pickToday(DATA);
 
-  if (!data.skips) data.skips = {};
-  if (!data.skips[t]) data.skips[t] = [];
+  if (!DATA.skips) DATA.skips = {};
+  if (!DATA.skips[t]) DATA.skips[t] = [];
 
-  if (data.today?.consoleId && data.today?.gameId) {
-    data.skips[t].push({ consoleId: data.today.consoleId, gameId: data.today.gameId });
+  if (DATA.today?.consoleId && DATA.today?.gameId) {
+    DATA.skips[t].push({ consoleId: DATA.today.consoleId, gameId: DATA.today.gameId });
   }
 
-  pickToday(data, { forceNew: true });
+  pickToday(DATA, { forceNew: true });
 
-  commit(data, "swap");
+  commit("swap");
   render();
   flipSwap(todayBox);
 
-  const n = data.skips[t]?.length || 0;
+  const n = DATA.skips[t]?.length || 0;
   toast(n >= 3 ? `Cambio #${n}. Tú sí eres indeciso(a). 😌` : "Sugerencia cambiada 🔄");
 });
 
-btnComplete.addEventListener("click", () => {
-  const data = load();
-  pickToday(data);
-  const today = data.today;
+btnComplete?.addEventListener("click", () => {
+  pickToday(DATA);
+  const today = DATA.today;
 
   if (!today?.gameId) {
     toast("No hay juego para completar.");
     return;
   }
 
-  const g = byId(data.games, today.gameId);
+  const g = byId(DATA.games, today.gameId);
   if (!g) return;
 
   g.status = "done";
   g.completedAt = nowMs();
+  DATA.today = null;
 
-  data.today = null;
-
-  commit(data, "complete");
+  commit("complete");
   render();
 
   pulse(todayBox);
   toast("Juego marcado como completado 🏁");
 });
 
-btnReset.addEventListener("click", () => {
-  const data = load();
+btnReset?.addEventListener("click", () => {
   const t = todayISO();
 
-  data.today = null;
-  if (data.skips && data.skips[t]) data.skips[t] = [];
+  DATA.today = null;
+  if (DATA.skips && DATA.skips[t]) DATA.skips[t] = [];
 
-  commit(data, "reset");
+  commit("reset");
   render();
 
   toast("Plan de hoy reseteado. Volvemos a girar la ruleta. 🎲");
 });
+
+/* ---------------------------
+   Delegated clicks (list actions)
+--------------------------- */
 
 document.addEventListener("click", async (e) => {
   const btn = e.target?.closest?.("[data-action]");
@@ -1694,7 +1689,6 @@ document.addEventListener("click", async (e) => {
 
   const action = btn.getAttribute("data-action");
   const id = btn.getAttribute("data-id");
-  const data = load();
 
   if (action === "openStatsCenter") {
     UI.view = "stats";
@@ -1710,19 +1704,31 @@ document.addEventListener("click", async (e) => {
     return;
   }
 
-  if (action === "jumpToMainWithThis") {
-    const g = byId(data.games, id);
+  if (action === "markPlayedManual") {
+    const g = byId(DATA.games, id);
     if (!g) return;
 
-    // Fuerza el plan de hoy a ese juego (si es activo)
+    // Registra sesión manual sin tocar el plan (por defecto).
+    const ok = recordPlayed(g.id, { alsoSetToday: false });
+    if (!ok) return;
+
+    render();
+    toast("Sesión registrada ✅ (manual)");
+    return;
+  }
+
+  if (action === "jumpToMainWithThis") {
+    const g = byId(DATA.games, id);
+    if (!g) return;
+
     if (g.status !== "active") {
       toast("Ese juego está completado. Reactívalo para sugerirlo.");
       return;
     }
 
-    data.today = { date: todayISO(), consoleId: g.consoleId, gameId: g.id };
+    DATA.today = { date: todayISO(), consoleId: g.consoleId, gameId: g.id };
     UI.view = "main";
-    commit(data, "jumpToMainWithThis");
+    commit("jumpToMainWithThis");
     render();
     toast("Listo. Plan ajustado a ese juego ✅");
     pulse(todayBox);
@@ -1733,19 +1739,19 @@ document.addEventListener("click", async (e) => {
     const ok = confirm("¿Borrar consola? Esto no borra juegos, pero quedarán ‘sin consola’.");
     if (!ok) return;
 
-    data.consoles = data.consoles.filter((c) => c.id !== id);
-    for (const g of data.games) if (g.consoleId === id) g.consoleId = null;
+    DATA.consoles = DATA.consoles.filter((c) => c.id !== id);
+    for (const g of DATA.games) if (g.consoleId === id) g.consoleId = null;
 
-    data.today = null;
-    pruneDanglingRefs(data);
-    commit(data, "delConsole");
+    DATA.today = null;
+    pruneDanglingRefs(DATA);
+    commit("delConsole");
     render();
     toast("Consola borrada 🗑️");
     return;
   }
 
   if (action === "editConsole") {
-    const c = byId(data.consoles, id);
+    const c = byId(DATA.consoles, id);
     if (!c) return;
 
     await openModal({
@@ -1761,8 +1767,7 @@ document.addEventListener("click", async (e) => {
         </div>
       `,
       onOk: () => {
-        const d = load();
-        const cc = byId(d.consoles, id);
+        const cc = byId(DATA.consoles, id);
         if (!cc) return;
 
         const name = $("#cName").value.trim();
@@ -1771,8 +1776,8 @@ document.addEventListener("click", async (e) => {
         if (name) cc.name = name;
         cc.weight = Math.max(0.25, weight || 1);
 
-        d.today = null;
-        commit(d, "editConsole");
+        DATA.today = null;
+        commit("editConsole");
         render();
         toast("Consola actualizada ✅");
       }
@@ -1784,29 +1789,29 @@ document.addEventListener("click", async (e) => {
     const ok = confirm("¿Borrar juego? Se va para el vacío eterno.");
     if (!ok) return;
 
-    data.games = data.games.filter((g) => g.id !== id);
-    data.history = data.history.filter((h) => h.gameId !== id);
+    DATA.games = DATA.games.filter((g) => g.id !== id);
+    DATA.history = DATA.history.filter((h) => h.gameId !== id);
 
-    if (data.today?.gameId === id) data.today = null;
+    if (DATA.today?.gameId === id) DATA.today = null;
 
-    if (data.skips) {
-      for (const day of Object.keys(data.skips)) {
-        data.skips[day] = (data.skips[day] || []).filter((s) => s.gameId !== id);
+    if (DATA.skips) {
+      for (const day of Object.keys(DATA.skips)) {
+        DATA.skips[day] = (DATA.skips[day] || []).filter((s) => s.gameId !== id);
       }
     }
 
-    pruneDanglingRefs(data);
-    commit(data, "delGame");
+    pruneDanglingRefs(DATA);
+    commit("delGame");
     render();
     toast("Juego borrado 🗑️");
     return;
   }
 
   if (action === "editGame") {
-    const g = byId(data.games, id);
+    const g = byId(DATA.games, id);
     if (!g) return;
 
-    const options = data.consoles
+    const options = DATA.consoles
       .map((c) => `<option value="${c.id}" ${c.id === g.consoleId ? "selected" : ""}>${escapeHtml(c.name)}</option>`)
       .join("");
 
@@ -1830,8 +1835,7 @@ document.addEventListener("click", async (e) => {
         </div>
       `,
       onOk: () => {
-        const d = load();
-        const gg = byId(d.games, id);
+        const gg = byId(DATA.games, id);
         if (!gg) return;
 
         const title = $("#gTitle").value.trim();
@@ -1841,7 +1845,7 @@ document.addEventListener("click", async (e) => {
         if (title) gg.title = title;
 
         if (status === "active") {
-          const act = activeGamesForConsole(d, consoleId).filter((x) => x.id !== gg.id);
+          const act = activeGamesForConsole(DATA, consoleId).filter((x) => x.id !== gg.id);
           if (act.length >= 2) {
             toast("Esa consola ya tiene 2 juegos activos. Completa uno primero.");
             return;
@@ -1854,8 +1858,8 @@ document.addEventListener("click", async (e) => {
         gg.consoleId = consoleId || null;
         gg.status = status;
 
-        d.today = null;
-        commit(d, "editGame");
+        DATA.today = null;
+        commit("editGame");
         render();
         toast("Juego actualizado ✅");
       }
@@ -1864,7 +1868,7 @@ document.addEventListener("click", async (e) => {
   }
 
   if (action === "toggleGame") {
-    const g = byId(data.games, id);
+    const g = byId(DATA.games, id);
     if (!g) return;
 
     if (g.status === "active") {
@@ -1872,7 +1876,7 @@ document.addEventListener("click", async (e) => {
       g.completedAt = nowMs();
       toast("Marcado como completado 🏁");
     } else {
-      const act = activeGamesForConsole(data, g.consoleId);
+      const act = activeGamesForConsole(DATA, g.consoleId);
       if (act.length >= 2) {
         toast("Esa consola ya tiene 2 juegos activos. No se puede reactivar.");
         return;
@@ -1882,8 +1886,8 @@ document.addEventListener("click", async (e) => {
       toast("Reactivado ✅");
     }
 
-    data.today = null;
-    commit(data, "toggleGame");
+    DATA.today = null;
+    commit("toggleGame");
     render();
     return;
   }
@@ -1896,10 +1900,10 @@ document.addEventListener("click", async (e) => {
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  btnInstall.hidden = false;
+  if (btnInstall) btnInstall.hidden = false;
 });
 
-btnInstall.addEventListener("click", async () => {
+btnInstall?.addEventListener("click", async () => {
   if (!deferredPrompt) return;
   deferredPrompt.prompt();
   await deferredPrompt.userChoice;
@@ -1975,6 +1979,7 @@ if ("serviceWorker" in navigator) {
    Init
 --------------------------- */
 
+DATA = load();
 mountBackupButtons();
-lastSavedSnapshot = snapshot(load());
+lastSavedSnapshot = snapshot(DATA);
 render();
