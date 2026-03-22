@@ -1,4 +1,4 @@
-/* Game Rotator — v1.7 (localStorage-only)
+/* Game Rotator — v2.0 (localStorage-only)
    Fixes + mejoras:
    ✅ Home más limpia: Consolas/Juegos colapsables (por defecto cerradas)
    ✅ Botón Stats funciona siempre (existente o inyectado)
@@ -48,6 +48,12 @@ const UI = (window.__rotUI = window.__rotUI || {
 
 // DATA in-memory (menos IO)
 let DATA = null;
+
+// Chart.js instances (destroy before re-render)
+const _charts = {};
+function destroyChart(id) {
+  if (_charts[id]) { try { _charts[id].destroy(); } catch {} delete _charts[id]; }
+}
 
 /* ---------------------------
    Utils
@@ -199,6 +205,7 @@ function migrate(data) {
     if (!("lastPlayed" in g)) g.lastPlayed = null;
     if (!("completedAt" in g)) g.completedAt = null;
     if (!("status" in g)) g.status = "active";
+    if (!("progress" in g)) g.progress = null;
   }
 
   for (const h of data.history) {
@@ -206,12 +213,15 @@ function migrate(data) {
       const ms = isoToMs(h.date);
       h.playedAt = ms || null;
     }
+    if (!("rating" in h)) h.rating = null;
+    if (!("note" in h)) h.note = null;
+    if (!("duration" in h)) h.duration = null;
   }
 
   hydrateGameDerivedFromHistory(data);
   pruneDanglingRefs(data);
 
-  data.meta.version = "1.7";
+  data.meta.version = "2.0";
   return data;
 }
 
@@ -317,6 +327,25 @@ function flipSwap(elm) {
 }
 
 /* ---------------------------
+   Session helpers (v2.0)
+--------------------------- */
+
+function formatDuration(minutes) {
+  if (!minutes) return null;
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h}h ${m}min` : `${h}h`;
+}
+
+function ratingEmoji(r) {
+  if (r === 1) return '😐';
+  if (r === 2) return '😊';
+  if (r === 3) return '🔥';
+  return '';
+}
+
+/* ---------------------------
    Stats derivadas
 --------------------------- */
 
@@ -400,6 +429,15 @@ function computeGameStats(data, gameId) {
   const addedMs = g?.addedAt || null;
   const daysSinceAdded = addedMs ? diffDaysMs(now, addedMs) : null;
 
+  // Session enrichment
+  const entries = data.history.filter(h => h.gameId === gameId);
+  const ratings = entries.map(h => h.rating).filter(r => r != null);
+  const avgRating = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null;
+  const durations = entries.map(h => h.duration).filter(d => d != null && d > 0);
+  const totalDuration = durations.length ? durations.reduce((a, b) => a + b, 0) : null;
+  const lastNoteEntry = [...entries].reverse().find(h => h.note);
+  const lastNote = lastNoteEntry?.note || null;
+
   return {
     sessions,
     firstDate,
@@ -409,7 +447,10 @@ function computeGameStats(data, gameId) {
     streakBest: best,
     streakCurrent: cur,
     avgGap,
-    daysSinceAdded
+    daysSinceAdded,
+    avgRating,
+    totalDuration,
+    lastNote
   };
 }
 
@@ -436,8 +477,54 @@ function buildTimeline(data, n = 30) {
     if (!h) return { date, played: false, label: "—", consoleId: null, gameId: null };
     const c = byId(data.consoles, h.consoleId);
     const g = byId(data.games, h.gameId);
-    return { date, played: true, label: `${c?.name || "?"} · ${g?.title || "?"}`, consoleId: h.consoleId, gameId: h.gameId };
+    return {
+      date, played: true,
+      label: `${c?.name || "?"} · ${g?.title || "?"}`,
+      consoleId: h.consoleId, gameId: h.gameId,
+      rating: h.rating ?? null,
+      note: h.note ?? null,
+      duration: h.duration ?? null,
+    };
   });
+}
+
+function buildMonthlyData(data, n = 6) {
+  const now = new Date();
+  const months = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleDateString('es-CO', { month: 'short', year: '2-digit' });
+    months.push({ key, label });
+  }
+  const counts = {};
+  for (const m of months) counts[m.key] = 0;
+  for (const h of data.history) {
+    const mk = h.date ? h.date.slice(0, 7) : null;
+    if (mk && mk in counts) counts[mk]++;
+  }
+  return { labels: months.map(m => m.label), values: months.map(m => counts[m.key]) };
+}
+
+function buildHeatmap90(data) {
+  const days = lastNDaysISO(90);
+  const sessionMap = new Map();
+  for (const h of data.history) sessionMap.set(h.date, (sessionMap.get(h.date) || 0) + 1);
+
+  const [y, mo, d] = days[0].split('-').map(Number);
+  const firstDow = new Date(y, mo - 1, d).getDay();
+
+  const weeks = [];
+  let cur = new Array(firstDow).fill(null);
+  for (const day of days) {
+    cur.push({ date: day, count: sessionMap.get(day) || 0 });
+    if (cur.length === 7) { weeks.push(cur); cur = []; }
+  }
+  if (cur.length) {
+    while (cur.length < 7) cur.push(null);
+    weeks.push(cur);
+  }
+  return weeks;
 }
 
 function computeGlobalStats(data) {
@@ -537,6 +624,10 @@ function scorePair(data, pair) {
   // Peso consola
   const w = Math.max(0.25, safeNum(c.weight, 1));
   score += (1 / w) * 2.0;
+
+  // Rating affinity (higher rating = more enjoyable = lower score = more likely to be picked)
+  const gStats = computeGameStats(data, pair.gameId);
+  if (gStats.avgRating != null) score -= (gStats.avgRating - 2) * 2.5;
 
   // Status
   if (g.status !== "active") score += 999;
@@ -865,6 +956,13 @@ function renderTodayBox(data) {
   const skippedCount = (data.skips?.[t]?.length || 0);
   const stats = computeGameStats(data, today.gameId);
 
+  // Reminder banner
+  const globalForReminder = computeGlobalStats(data);
+  const todayAlreadyPlayed = data.history.some(h => h.date === t);
+  const showReminder = globalForReminder.daysSinceLast != null
+    && globalForReminder.daysSinceLast >= 2
+    && !todayAlreadyPlayed;
+
   const lastPlayedStr = g?.lastPlayed ? `${new Date(g.lastPlayed).toLocaleString("es-CO")}` : "Nunca";
   const sinceStart = stats.daysSinceStart != null ? `${stats.daysSinceStart} día(s) desde que lo empezaste` : "Aún no lo has empezado";
   const sinceLast = stats.daysSinceLast != null ? `· ${stats.daysSinceLast} día(s) desde la última vez` : "";
@@ -894,6 +992,12 @@ function renderTodayBox(data) {
   `;
 
   todayBox.innerHTML = `
+    ${showReminder ? `
+      <div class="reminder-banner">
+        ⏰ <b>Llevas ${globalForReminder.daysSinceLast} día${globalForReminder.daysSinceLast !== 1 ? 's' : ''} sin sesión.</b>
+        Hoy es buen día para retomar. 🎮
+      </div>
+    ` : ''}
     <div class="kv">
       <span class="pill">Consola: <b>${escapeHtml(c?.name || "—")}</b></span>
       <span class="pill">Juego: <b>${escapeHtml(g?.title || "—")}</b></span>
@@ -1031,10 +1135,12 @@ function renderGames(data) {
               ${g.lastPlayed ? `· Última: ${new Date(g.lastPlayed).toLocaleDateString("es-CO")}` : ""}
               ${extra ? ` ${escapeHtml(extra)}` : ""}
             </div>
+            ${g.progress ? `<div style="margin-top:4px;"><span class="progress-badge">📍 ${escapeHtml(g.progress)}</span></div>` : ''}
           </div>
           <div class="mini">
             <span class="badge">${statusLabel}</span>
             ${canManualPlay ? `<button class="btn primary" data-action="markPlayedManual" data-id="${g.id}">✅ Jugué</button>` : ""}
+            <button class="btn ghost" data-action="editProgress" data-id="${g.id}">📍 ${g.progress ? escapeHtml(g.progress) : 'Progreso'}</button>
             <button class="btn ghost" data-action="openStatsCenter" data-id="${g.id}">📊 Stats</button>
             <button class="btn ghost" data-action="toggleGame" data-id="${g.id}">
               ${g.status === "active" ? "Completar" : "Reactivar"}
@@ -1117,30 +1223,30 @@ function renderStatsCenter(data) {
   const panelJuegos = statsView.querySelector(`[data-panel="juegos"]`);
 
   if (panelResumen) {
-    const maxConsole = Math.max(1, ...global.byConsole.map(x => x.n));
+    destroyChart('monthly');
+    destroyChart('consoles');
+
     panelResumen.innerHTML = `
       <div class="kpi-grid" aria-label="KPIs globales">
-        <div class="kpi-card"><div class="k">Racha actual</div><div class="v">${global.streakCurrent}</div><div class="s">Días seguidos con sesión</div></div>
+        <div class="kpi-card"><div class="k">Racha actual</div><div class="v">${global.streakCurrent}</div><div class="s">Días seguidos</div></div>
         <div class="kpi-card"><div class="k">Racha máxima</div><div class="v">${global.streakBest}</div><div class="s">Tu mejor streak</div></div>
-        <div class="kpi-card"><div class="k">Sesiones (30 días)</div><div class="v">${global.sessions30}</div><div class="s">Últimos 30 días</div></div>
+        <div class="kpi-card"><div class="k">Sesiones (30 días)</div><div class="v">${global.sessions30}</div><div class="s">Último mes</div></div>
         <div class="kpi-card"><div class="k">Juegos jugados</div><div class="v">${global.uniqGamesPlayed}</div><div class="s">Con al menos 1 sesión</div></div>
+      </div>
+
+      <div class="soft-card" style="margin-bottom:12px;">
+        <div class="soft-title">Sesiones por mes (últimos 6 meses)</div>
+        <div class="chart-wrap"><canvas id="chartMonthly"></canvas></div>
       </div>
 
       <div class="split">
         <div class="soft-card">
-          <div class="soft-title">Uso por consola</div>
-          <div class="bars">
-            ${global.byConsole.map(x => {
-              const pct = Math.round((x.n / maxConsole) * 100);
-              return `
-                <div class="bar">
-                  <div class="label" title="${escapeHtml(x.name)}">${escapeHtml(x.name)}</div>
-                  <div class="track"><div class="fill" style="width:${pct}%;"></div></div>
-                  <div class="n">${x.n}</div>
-                </div>
-              `;
-            }).join("") || `<div class="subhint">Aún no hay sesiones para mostrar. 😶</div>`}
-          </div>
+          <div class="soft-title">Distribución por consola</div>
+          ${global.byConsole.some(x => x.n > 0)
+            ? `<div class="chart-wrap chart-wrap--sm"><canvas id="chartConsoles"></canvas></div>`
+            : `<div class="subhint" style="margin:0;">Aún no hay sesiones para mostrar. 😶</div>`
+          }
+          <div class="subhint" style="margin:8px 0 0;">Basado en registros reales. 😌</div>
         </div>
 
         <div class="soft-card">
@@ -1160,12 +1266,15 @@ function renderStatsCenter(data) {
         </div>
       </div>
     `;
+
+    setTimeout(() => initChartsResumen(data), 0);
   }
 
   if (panelHistorico) {
     const timeline = buildTimeline(data, 30);
     const played30 = timeline.filter(x => x.played).length;
     const gridDays = buildTimeline(data, 14);
+    const heatmapWeeks = buildHeatmap90(data);
 
     panelHistorico.innerHTML = `
       <div class="kpi-grid" aria-label="KPIs de histórico">
@@ -1176,28 +1285,55 @@ function renderStatsCenter(data) {
       </div>
 
       <div class="soft-card" style="margin-bottom:12px;">
-        <div class="soft-title">Streak rápido (14 días)</div>
+        <div class="soft-title">Actividad (últimos 90 días)</div>
+        <div class="heatmap" aria-label="Mapa de calor de actividad">
+          ${heatmapWeeks.map(week => `
+            <div class="hm-week">
+              ${week.map(day => day
+                ? `<div class="hm-day ${day.count >= 2 ? 'on-hot' : day.count === 1 ? 'on' : ''}"
+                        title="${escapeHtml(day.date)} · ${day.count} sesión(es)"></div>`
+                : `<div class="hm-day empty"></div>`
+              ).join('')}
+            </div>
+          `).join('')}
+        </div>
+        <div class="heatmap-legend">
+          <span class="hm-leg-item"><span class="hm-day" style="display:inline-block;width:10px;height:10px;border-radius:3px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02);"></span> Sin sesión</span>
+          <span class="hm-leg-item"><span class="hm-day on" style="display:inline-block;width:10px;height:10px;border-radius:3px;border:1px solid rgba(34,197,94,.28);background:rgba(34,197,94,.20);"></span> 1 sesión</span>
+          <span class="hm-leg-item"><span class="hm-day on-hot" style="display:inline-block;width:10px;height:10px;border-radius:3px;border:1px solid rgba(34,197,94,.50);background:rgba(34,197,94,.38);"></span> 2+ sesiones</span>
+        </div>
+      </div>
+
+      <div class="soft-card" style="margin-bottom:12px;">
+        <div class="soft-title">Racha (14 días)</div>
         <div class="streak" aria-label="Días jugados en los últimos 14 días">
           ${gridDays.map(d => `<div class="day ${d.played ? "on" : ""}" title="${escapeHtml(d.date)} ${d.played ? "✅" : "—"}"></div>`).join("")}
         </div>
         <div class="subhint" style="margin:10px 0 0;">
-          ${global.daysSinceLast == null ? "Todavía sin sesiones. Se arregla. 😌" : `Última sesión hace ${global.daysSinceLast} día(s).`}
+          ${global.daysSinceLast == null ? "Sin sesiones todavía. 😌" : `Última sesión hace ${global.daysSinceLast} día(s).`}
         </div>
       </div>
 
       <div class="soft-card">
         <div class="soft-title">Histórico (30 días)</div>
         <div class="history">
-          ${
-            timeline.slice().reverse().map(d => `
+          ${timeline.slice().reverse().map(d => {
+            const rStr = d.rating ? ratingEmoji(d.rating) : '';
+            const durStr = d.duration ? formatDuration(d.duration) : '';
+            const extras = [rStr, durStr].filter(Boolean).join(' · ');
+            const noteHtml = d.note
+              ? `<div style="padding:2px 34px 6px;font-size:11px;color:rgba(156,163,175,.85);font-style:italic;">"${escapeHtml(d.note.slice(0,80))}${d.note.length > 80 ? '…' : ''}"</div>`
+              : '';
+            return `
               <div class="h-row">
                 <div class="dot">${d.played ? "✅" : "·"}</div>
                 <div class="date">${escapeHtml(d.date)}</div>
                 <div class="txt">${d.played ? escapeHtml(d.label) : "—"}</div>
-                <div class="meta">${d.played ? "sesión" : ""}</div>
+                <div class="meta">${extras || (d.played ? "sesión" : "")}</div>
               </div>
-            `).join("")
-          }
+              ${noteHtml}
+            `;
+          }).join("")}
         </div>
       </div>
     `;
@@ -1249,6 +1385,17 @@ function renderStatsCenter(data) {
               ? last10.map(d => `<div style="font-size:12px;opacity:.92;padding:3px 0;">✅ ${escapeHtml(d)}</div>`).join("")
               : `<div class="subhint">Aún no lo has jugado. Hoy podría ser el día. 👀</div>`
           }
+          ${g ? `
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);">
+            <div class="soft-title" style="margin-bottom:6px;">Sesión promedio</div>
+            <div class="kv" style="gap:8px;">
+              ${s.avgRating != null ? `<span class="pill">Rating medio: <b>${ratingEmoji(Math.round(s.avgRating))} ${s.avgRating.toFixed(1)}</b></span>` : ''}
+              ${s.totalDuration ? `<span class="pill">Tiempo total: <b>${formatDuration(s.totalDuration)}</b></span>` : ''}
+              ${g.progress ? `<span class="pill">Progreso: <b>📍 ${escapeHtml(g.progress)}</b></span>` : ''}
+            </div>
+            ${s.lastNote ? `<div style="margin-top:8px;font-size:12px;color:var(--muted);font-style:italic;">"${escapeHtml(s.lastNote.slice(0,120))}${s.lastNote.length>120?'…':''}"</div>` : ''}
+          </div>
+        ` : ''}
           <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
             <button class="btn ghost" data-action="openGameModalStats" data-id="${escapeHtml(gameId || "")}">Abrir modal detalle</button>
             <button class="btn ghost" data-action="jumpToMainWithThis" data-id="${escapeHtml(gameId || "")}">Volver y sugerir este</button>
@@ -1256,6 +1403,112 @@ function renderStatsCenter(data) {
         </div>
       </div>
     `;
+  }
+}
+
+/* ---------------------------
+   Chart.js init (v2.0)
+--------------------------- */
+
+function initChartsResumen(data) {
+  if (typeof window.Chart === 'undefined') return;
+
+  // Monthly bar chart
+  const canvasMonthly = document.getElementById('chartMonthly');
+  destroyChart('monthly');
+  if (canvasMonthly) {
+    const { labels, values } = buildMonthlyData(data);
+    _charts['monthly'] = new window.Chart(canvasMonthly, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: 'rgba(96,165,250,0.18)',
+          borderColor: 'rgba(96,165,250,0.55)',
+          borderWidth: 1,
+          borderRadius: 6,
+          hoverBackgroundColor: 'rgba(96,165,250,0.30)',
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(17,24,39,0.95)',
+            borderColor: 'rgba(255,255,255,0.12)',
+            borderWidth: 1,
+            titleColor: '#fff',
+            bodyColor: 'rgba(229,231,235,0.9)',
+            callbacks: { label: ctx => ` ${ctx.raw} sesión(es)` }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: 'rgba(156,163,175,0.85)', font: { size: 11 } },
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            border: { color: 'rgba(255,255,255,0.08)' },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { color: 'rgba(156,163,175,0.85)', font: { size: 11 }, stepSize: 1 },
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            border: { color: 'rgba(255,255,255,0.08)' },
+          }
+        }
+      }
+    });
+  }
+
+  // Console doughnut
+  const canvasConsoles = document.getElementById('chartConsoles');
+  destroyChart('consoles');
+  if (canvasConsoles) {
+    const gl = computeGlobalStats(data);
+    const active = gl.byConsole.filter(x => x.n > 0);
+    if (active.length) {
+      const palette = [
+        'rgba(34,197,94,0.70)',
+        'rgba(96,165,250,0.70)',
+        'rgba(236,72,153,0.70)',
+        'rgba(245,158,11,0.70)',
+        'rgba(167,139,250,0.70)',
+        'rgba(251,113,133,0.70)',
+      ];
+      _charts['consoles'] = new window.Chart(canvasConsoles, {
+        type: 'doughnut',
+        data: {
+          labels: active.map(x => x.name),
+          datasets: [{
+            data: active.map(x => x.n),
+            backgroundColor: palette.slice(0, active.length),
+            borderColor: 'rgba(17,24,39,0.85)',
+            borderWidth: 2,
+            hoverOffset: 5,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { color: 'rgba(229,231,235,0.9)', font: { size: 11 }, padding: 10, boxWidth: 12 }
+            },
+            tooltip: {
+              backgroundColor: 'rgba(17,24,39,0.95)',
+              borderColor: 'rgba(255,255,255,0.12)',
+              borderWidth: 1,
+              titleColor: '#fff',
+              bodyColor: 'rgba(229,231,235,0.9)',
+              callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw} sesión(es)` }
+            }
+          }
+        }
+      });
+    }
   }
 }
 
@@ -1304,17 +1557,83 @@ function render() {
    Modal helpers
 --------------------------- */
 
-async function openModal({ title, bodyHtml, onOk }) {
+async function openModal({ title, bodyHtml, onOk, onMount, okLabel }) {
   modalTitle.textContent = title;
   modalBody.innerHTML = bodyHtml;
+  if (modalOk) modalOk.textContent = okLabel || 'Guardar';
+  onMount?.();
 
   const result = await new Promise((resolve) => {
     modal.addEventListener("close", () => resolve(modal.returnValue), { once: true });
     modal.showModal();
   });
 
+  if (modalOk) modalOk.textContent = 'Guardar'; // reset
   if (result !== "ok") return;
   await onOk?.();
+}
+
+/* openPlayedModal: modal de sesión con rating / nota / duración */
+async function openPlayedModal(gameId) {
+  const g = byId(DATA.games, gameId);
+  if (!g) return null;
+  let confirmed = false;
+  let sessionData = { rating: null, note: null, duration: null };
+
+  await openModal({
+    title: '¿Cómo estuvo la sesión? 🎮',
+    okLabel: 'Registrar sesión ✅',
+    bodyHtml: `
+      <div class="field">
+        <label>Rating (opcional)</label>
+        <div class="rating-picker" id="ratingPicker">
+          <button class="rating-btn" data-v="1" type="button" title="Meh">😐</button>
+          <button class="rating-btn" data-v="2" type="button" title="Buena">😊</button>
+          <button class="rating-btn" data-v="3" type="button" title="¡Fuego!">🔥</button>
+        </div>
+        <input type="hidden" id="sessionRating" value="" />
+      </div>
+      <div class="field">
+        <label>Nota rápida (opcional)</label>
+        <input id="sessionNote" placeholder="Ej: llegué al jefe final, buen ritmo..." maxlength="200" />
+      </div>
+      <div class="field">
+        <label>Duración estimada</label>
+        <select id="sessionDuration">
+          <option value="">Sin registrar</option>
+          <option value="15">~15 min</option>
+          <option value="30">~30 min</option>
+          <option value="60">~1 hora</option>
+          <option value="90">~1h 30min</option>
+          <option value="120">~2 horas+</option>
+        </select>
+      </div>
+    `,
+    onMount: () => {
+      const picker = document.getElementById('ratingPicker');
+      const hidden = document.getElementById('sessionRating');
+      if (!picker || !hidden) return;
+      picker.querySelectorAll('.rating-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const v = btn.getAttribute('data-v');
+          hidden.value = hidden.value === v ? '' : v;
+          picker.querySelectorAll('.rating-btn').forEach(b =>
+            b.classList.toggle('active', b.getAttribute('data-v') === hidden.value)
+          );
+        });
+      });
+    },
+    onOk: () => {
+      confirmed = true;
+      sessionData.rating = document.getElementById('sessionRating')?.value
+        ? Number(document.getElementById('sessionRating').value) : null;
+      sessionData.note = document.getElementById('sessionNote')?.value.trim() || null;
+      sessionData.duration = document.getElementById('sessionDuration')?.value
+        ? Number(document.getElementById('sessionDuration').value) : null;
+    }
+  });
+
+  return confirmed ? sessionData : null;
 }
 
 async function openStatsModal(gameId) {
@@ -1476,7 +1795,7 @@ function mountBackupButtons() {
    Core actions helpers
 --------------------------- */
 
-function recordPlayed(gameId, { alsoSetToday = false } = {}) {
+function recordPlayed(gameId, { alsoSetToday = false, rating = null, note = null, duration = null } = {}) {
   const g = byId(DATA.games, gameId);
   if (!g) return false;
 
@@ -1488,7 +1807,10 @@ function recordPlayed(gameId, { alsoSetToday = false } = {}) {
     date: t,
     consoleId: g.consoleId,
     gameId: g.id,
-    playedAt
+    playedAt,
+    rating,
+    note: note || null,
+    duration
   });
 
   g.lastPlayed = playedAt;
@@ -1597,28 +1919,27 @@ btnAddGame?.addEventListener("click", async () => {
   });
 });
 
-btnPlayed?.addEventListener("click", () => {
+btnPlayed?.addEventListener("click", async () => {
   pickToday(DATA);
-
   const today = DATA.today;
   if (!today?.consoleId || !today?.gameId) {
     toast("No hay plan para marcar. Agrega consolas/juegos primero.");
     return;
   }
 
-  // Ahora no borra el registro del día: agrega una sesión más
-  recordPlayed(today.gameId, { alsoSetToday: true });
+  const sessionData = await openPlayedModal(today.gameId);
+  if (!sessionData) return; // user cancelled
 
+  recordPlayed(today.gameId, { alsoSetToday: true, ...sessionData });
   render();
   pulse(todayBox);
 
   const last7 = lastNDaysISO(7);
   const uniqueGames7 = new Set(DATA.history.filter(h => last7.includes(h.date)).map(h => h.gameId)).size;
-
   toast(
     uniqueGames7 >= 3
-      ? `Jugaste hoy ✅ y esta semana llevas ${uniqueGames7} juegos distintos. Respeto. 🏆`
-      : "Marcado ✅ mañana evitamos repetirte lo mismo."
+      ? `Sesión registrada ✅ · ${uniqueGames7} juegos distintos esta semana. Respeto. 🏆`
+      : "Sesión registrada ✅ Mañana evitamos repetirte lo mismo."
   );
 });
 
@@ -1704,12 +2025,37 @@ document.addEventListener("click", async (e) => {
     return;
   }
 
+  if (action === "editProgress") {
+    const g = byId(DATA.games, id);
+    if (!g) return;
+    await openModal({
+      title: 'Actualizar progreso',
+      bodyHtml: `
+        <div class="field">
+          <label>Progreso actual</label>
+          <input id="progressVal" value="${escapeHtml(g.progress || '')}" placeholder="Ej: 45%, Capítulo 3, Jefe 2/8..." maxlength="100" />
+        </div>
+      `,
+      onOk: () => {
+        const gg = byId(DATA.games, id);
+        if (!gg) return;
+        gg.progress = document.getElementById('progressVal')?.value.trim() || null;
+        commit('editProgress');
+        render();
+        toast('Progreso actualizado ✅');
+      }
+    });
+    return;
+  }
+
   if (action === "markPlayedManual") {
     const g = byId(DATA.games, id);
     if (!g) return;
 
-    // Registra sesión manual sin tocar el plan (por defecto).
-    const ok = recordPlayed(g.id, { alsoSetToday: false });
+    const sessionData = await openPlayedModal(g.id);
+    if (!sessionData) return; // user cancelled
+
+    const ok = recordPlayed(g.id, { alsoSetToday: false, ...sessionData });
     if (!ok) return;
 
     render();
@@ -1833,6 +2179,10 @@ document.addEventListener("click", async (e) => {
             <option value="done" ${g.status === "done" ? "selected" : ""}>Completado</option>
           </select>
         </div>
+        <div class="field">
+          <label>Progreso (opcional)</label>
+          <input id="gProgress" value="${escapeHtml(g.progress || '')}" placeholder="Ej: 45%, Capítulo 3, Jefe 2/8..." maxlength="100" />
+        </div>
       `,
       onOk: () => {
         const gg = byId(DATA.games, id);
@@ -1857,6 +2207,7 @@ document.addEventListener("click", async (e) => {
 
         gg.consoleId = consoleId || null;
         gg.status = status;
+        gg.progress = document.getElementById('gProgress')?.value.trim() || null;
 
         DATA.today = null;
         commit("editGame");
@@ -1982,4 +2333,12 @@ if ("serviceWorker" in navigator) {
 DATA = load();
 mountBackupButtons();
 lastSavedSnapshot = snapshot(DATA);
+
+// Chart.js dark theme defaults
+if (typeof window.Chart !== 'undefined') {
+  window.Chart.defaults.color = 'rgba(156,163,175,0.85)';
+  window.Chart.defaults.borderColor = 'rgba(255,255,255,0.07)';
+  window.Chart.defaults.font = { family: 'system-ui,-apple-system,Segoe UI,Roboto,sans-serif', size: 12 };
+}
+
 render();

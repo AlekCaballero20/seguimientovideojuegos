@@ -1230,3 +1230,145 @@ details[open] summary::after{ transform: rotate(180deg); }
     scroll-behavior: auto !important;
   }
 }
+/* =============================================================================
+  v2.0 ADDITIONS
+============================================================================= */
+
+/* Rating picker (modal de sesión) */
+.rating-picker {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.rating-btn {
+  font-size: 24px;
+  line-height: 1;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.04);
+  cursor: pointer;
+  transition:
+    transform var(--t) var(--ease),
+    background var(--t) var(--ease),
+    border-color var(--t) var(--ease),
+    box-shadow var(--t) var(--ease);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rating-btn:hover {
+  transform: scale(1.12);
+  background: rgba(255,255,255,.08);
+}
+
+.rating-btn.active {
+  border-color: rgba(34,197,94,.40);
+  background: rgba(34,197,94,.14);
+  transform: scale(1.10);
+  box-shadow: 0 0 0 1px rgba(34,197,94,.14) inset;
+}
+
+/* Reminder banner */
+.reminder-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(245,158,11,.28);
+  background: rgba(245,158,11,.07);
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(229,231,235,.92);
+}
+
+/* Heatmap (90 días) */
+.heatmap {
+  display: flex;
+  gap: 3px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  /* webkit scrollbar thin */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.10) transparent;
+}
+
+.hm-week {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.hm-day {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.02);
+  flex-shrink: 0;
+  transition: opacity var(--t) var(--ease);
+}
+
+.hm-day.on {
+  border-color: rgba(34,197,94,.28);
+  background: rgba(34,197,94,.22);
+}
+
+.hm-day.on-hot {
+  border-color: rgba(34,197,94,.55);
+  background: rgba(34,197,94,.40);
+}
+
+.hm-day.empty {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hm-day:not(.empty):hover {
+  opacity: .75;
+  cursor: default;
+}
+
+.heatmap-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.hm-leg-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Chart.js wrappers */
+.chart-wrap {
+  position: relative;
+  height: 140px;
+  width: 100%;
+}
+
+.chart-wrap--sm {
+  height: 170px;
+}
+
+/* Progress badge in game items */
+.progress-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(96,165,250,.26);
+  background: rgba(96,165,250,.09);
+  color: rgba(229,231,235,.92);
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.08) inset;
+}
