@@ -8,6 +8,7 @@ export function playableForRotation(data, options = {}) {
 
   return data.games.filter((game) => {
     if (!game.consoleId) return false;
+    if (game.rotationEnabled === false) return false;
     if (game.category === "completed" || game.category === "paused" || game.category === "wishlist") return false;
     if (game.category === "main") return true;
     if (game.category === "secondary") return includeSecondary && game.allowInRotation !== false;

@@ -124,7 +124,8 @@ async function maybeEnsureDefaultsAndPlan() {
 
   if (state.ensuringPlan) return;
   const existing = getTodayPlan(state.data);
-  if (existing || !state.data.games.length || !state.data.consoles.length) return;
+  const existingGame = existing ? gameById(existing.gameId) : null;
+  if ((existing && existingGame?.rotationEnabled !== false) || !state.data.games.length || !state.data.consoles.length) return;
 
   const suggestion = pickGame(state.data, { includeSecondary: true, avoidRecent: true });
   if (!suggestion) return;
@@ -154,7 +155,8 @@ function renderCategoryFilters() {
 
 function renderToday() {
   const plan = getTodayPlan(state.data);
-  const game = plan ? gameById(plan.gameId) : pickGame(state.data, { includeSecondary: true, avoidRecent: true });
+  const plannedGame = plan ? gameById(plan.gameId) : null;
+  const game = plannedGame && plannedGame.rotationEnabled !== false ? plannedGame : pickGame(state.data, { includeSecondary: true, avoidRecent: true });
   const consoleItem = game ? consoleById(game.consoleId) : null;
 
   if (!game) {
@@ -323,6 +325,7 @@ function gameCardHtml(game) {
       <div class="card-actions">
         <button class="btn primary" type="button" data-action="play" data-id="${game.id}">Jugar</button>
         <button class="btn" type="button" data-action="change-category" data-id="${game.id}">Categoría</button>
+        <button class="btn" type="button" data-action="toggle-rotation" data-id="${game.id}">${game.rotationEnabled === false ? "Habilitar rotación" : "Inhabilitar rotación"}</button>
         <button class="btn" type="button" data-action="game-stats" data-id="${game.id}">Stats</button>
       </div>
     </article>
@@ -420,7 +423,7 @@ function openConsoleForm(consoleItem = {}) {
 }
 
 function gameFormHtml(game = {}, defaults = {}) {
-  const current = { category: "secondary", progress: 0, priority: 3, estimatedMinutes: 60, allowInRotation: false, ...defaults, ...game };
+  const current = { category: "secondary", progress: 0, priority: 3, estimatedMinutes: 60, rotationEnabled: true, allowInRotation: false, ...defaults, ...game };
   const consoleOptions = state.data.consoles.map((consoleItem) => `
     <option value="${consoleItem.id}" ${current.consoleId === consoleItem.id ? "selected" : ""}>${escapeHtml(consoleItem.name)}</option>
   `).join("");
@@ -443,6 +446,10 @@ function gameFormHtml(game = {}, defaults = {}) {
       <div class="field"><label>Género</label><input name="genre" value="${escapeHtml(current.genre || "")}" placeholder="Aventura, RPG, carreras..." /></div>
     </div>
     <div class="field"><label>Tags de mood</label><input name="moodTags" value="${escapeHtml((current.moodTags || []).join?.(", ") || current.moodTags || "")}" placeholder="chill, historia, reto" /></div>
+    <label class="field" style="display:flex;grid-template-columns:auto 1fr;align-items:center;gap:10px">
+      <input name="rotationEnabled" type="checkbox" ${current.rotationEnabled !== false ? "checked" : ""} />
+      <span>Tener en cuenta este juego en la rotación</span>
+    </label>
     <label class="field" style="display:flex;grid-template-columns:auto 1fr;align-items:center;gap:10px">
       <input name="allowInRotation" type="checkbox" ${current.allowInRotation || current.category === "main" ? "checked" : ""} />
       <span>Permitir en rotación si es secundario</span>
@@ -469,6 +476,7 @@ function openGameForm(game = {}, defaults = {}) {
         progress: Number(values.progress) || 0,
         priority: Number(values.priority) || 3,
         estimatedMinutes: Number(values.estimatedMinutes) || 60,
+        rotationEnabled: values.rotationEnabled === "on",
         allowInRotation: values.allowInRotation === "on"
       };
       await submitGameWithLimit(prepared);
@@ -641,6 +649,7 @@ function spinRotator() {
   options.ignoreGenreRotation = !$("#rotAlternateGenre").checked;
   const candidates = state.data.games.filter((game) => {
     if (["completed", "paused", "wishlist"].includes(game.category)) return false;
+    if (game.rotationEnabled === false) return false;
     if (game.category === "main") return true;
     if (game.category === "secondary") return options.includeSecondary && game.allowInRotation !== false;
     if (game.category === "curiosity") return options.includeCuriosity;
@@ -780,6 +789,11 @@ function setupEvents() {
       if (action === "add-main-for-console") openGameForm({}, { consoleId: id, category: "main", allowInRotation: true });
       if (action === "play" && game) openSessionForm(game);
       if (action === "edit-game" && game) openGameForm(game);
+      if (action === "toggle-rotation" && game) {
+        const enabled = game.rotationEnabled === false;
+        await updateGame(state.uid, { ...game, rotationEnabled: enabled });
+        toast(enabled ? "Juego habilitado para la rotación." : "Juego fuera de la rotación.");
+      }
       if (action === "change-category" && game) openCategoryModal(game);
       if (action === "game-stats" && game) openGameStats(game);
       if (action === "complete-game" && game) completeGame(game);

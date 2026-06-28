@@ -8,6 +8,7 @@ export function normalizeGame(input = {}) {
     title: String(input.title || "").trim() || "Juego sin nombre",
     consoleId: input.consoleId || "",
     category,
+    rotationEnabled: input.rotationEnabled !== false,
     allowInRotation: category === "secondary" ? Boolean(input.allowInRotation) : category === "main",
     progress: Number.isFinite(Number(input.progress)) ? Math.max(0, Math.min(100, Number(input.progress))) : 0,
     estimatedMinutes: Number.isFinite(Number(input.estimatedMinutes)) ? Math.max(10, Number(input.estimatedMinutes)) : 60,

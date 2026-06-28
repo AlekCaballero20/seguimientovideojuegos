@@ -1,6 +1,6 @@
 'use strict';
 
-const VERSION = 'game-rotator-firebase-v1.0.4';
+const VERSION = 'game-rotator-firebase-v1.0.5';
 const CACHE_NAME = `grcc-${VERSION}`;
 const CORE_ASSETS = [
   './',
