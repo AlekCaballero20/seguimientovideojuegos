@@ -12,6 +12,7 @@ export function normalizeGame(input = {}) {
     progress: Number.isFinite(Number(input.progress)) ? Math.max(0, Math.min(100, Number(input.progress))) : 0,
     estimatedMinutes: Number.isFinite(Number(input.estimatedMinutes)) ? Math.max(10, Number(input.estimatedMinutes)) : 60,
     priority: Number.isFinite(Number(input.priority)) ? Math.max(1, Math.min(5, Number(input.priority))) : 3,
+    genre: String(input.genre || "").trim(),
     moodTags: Array.isArray(input.moodTags) ? input.moodTags : String(input.moodTags || "").split(",").map((x) => x.trim()).filter(Boolean),
     notes: String(input.notes || "").trim(),
     addedAt: input.addedAt || Date.now(),

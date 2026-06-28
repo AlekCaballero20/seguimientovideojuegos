@@ -37,21 +37,34 @@ export function scoreGame(game, data, options = {}) {
     if (recent.filter((s) => s.consoleId === game.consoleId).length >= 2) recentPenalty -= 16;
   }
 
-  return Math.max(1, categoryBase + ageBoost + progressBoost + (consoleWeight * 10) + (priority * 5) + estimatePenalty + recentPenalty + Math.random() * 12);
+  return Math.max(1, categoryBase + ageBoost + progressBoost + (consoleWeight * 10) + (priority * 5) + estimatePenalty + recentPenalty);
 }
 
 export function pickGame(data, options = {}) {
-  const candidates = playableForRotation(data, options);
+  let candidates = playableForRotation(data, options);
   if (!candidates.length) return null;
 
-  const weighted = candidates.map((game) => ({ game, score: scoreGame(game, data, options) }));
-  const total = weighted.reduce((sum, item) => sum + item.score, 0);
-  let roll = Math.random() * total;
-  for (const item of weighted) {
-    roll -= item.score;
-    if (roll <= 0) return item.game;
+  if (!options.ignoreGenreRotation) {
+    const lastSession = data.sessions.slice().sort((a, b) => (b.playedAt || 0) - (a.playedAt || 0))[0];
+    const lastGame = lastSession ? data.games.find((game) => game.id === lastSession.gameId) : null;
+    const lastGenre = String(lastGame?.genre || "").trim().toLocaleLowerCase();
+    const otherGenres = lastGenre
+      ? candidates.filter((game) => String(game.genre || "").trim().toLocaleLowerCase() !== lastGenre)
+      : [];
+    if (otherGenres.length) candidates = otherGenres;
   }
-  return weighted.sort((a, b) => b.score - a.score)[0].game;
+
+  const ranked = candidates.slice().sort((a, b) => {
+    const neverPlayed = Number(!b.lastPlayed) - Number(!a.lastPlayed);
+    if (neverPlayed) return neverPlayed;
+    const oldestFirst = (a.lastPlayed || 0) - (b.lastPlayed || 0);
+    if (oldestFirst) return oldestFirst;
+    const scoreDifference = scoreGame(b, data, options) - scoreGame(a, data, options);
+    if (scoreDifference) return scoreDifference;
+    return String(a.title).localeCompare(String(b.title), "es", { sensitivity: "base" });
+  });
+  const excludedIds = new Set(options.excludeGameIds || []);
+  return ranked.find((game) => !excludedIds.has(game.id)) || ranked[0] || null;
 }
 
 export async function saveTodayPlan(uid, game, reason = "generated") {

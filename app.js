@@ -19,6 +19,7 @@ const state = {
   view: "today",
   filter: "all",
   search: "",
+  sort: "alphabetical",
   data: { consoles: [], games: [], sessions: [], dailyPlans: [] },
   unsubscribeData: null,
   seededDefaults: false,
@@ -42,6 +43,7 @@ const els = {
   recentSessions: document.querySelector("#recentSessions"),
   categoryFilters: document.querySelector("#categoryFilters"),
   gameSearch: document.querySelector("#gameSearch"),
+  gameSort: document.querySelector("#gameSort"),
   gamesGrid: document.querySelector("#gamesGrid"),
   consolesList: document.querySelector("#consolesList"),
   statsKpis: document.querySelector("#statsKpis"),
@@ -188,6 +190,7 @@ function renderToday() {
         <span class="mini-pill">${minutesLabel(game.totalMinutes || 0)}</span>
       </div>
       <div class="progress-wrap">
+        ${game.genre ? `<div class="game-meta"><span class="mini-pill">🎭 ${escapeHtml(game.genre)}</span></div>` : ""}
         <div class="progress-label"><span>Progreso</span><strong>${progress}%</strong></div>
         <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
       </div>
@@ -271,9 +274,17 @@ function renderGames() {
   if (q) {
     games = games.filter((game) => {
       const consoleItem = consoleById(game.consoleId);
-      return [game.title, game.notes, consoleItem?.name, categoryLabel(game.category)].some((text) => String(text || "").toLowerCase().includes(q));
+      return [game.title, game.genre, game.notes, consoleItem?.name, categoryLabel(game.category)].some((text) => String(text || "").toLowerCase().includes(q));
     });
   }
+  const byTitle = (a, b) => String(a.title).localeCompare(String(b.title), "es", { sensitivity: "base" });
+  games.sort((a, b) => {
+    if (state.sort === "last-played-oldest") return Number(Boolean(a.lastPlayed)) - Number(Boolean(b.lastPlayed)) || (a.lastPlayed || 0) - (b.lastPlayed || 0) || byTitle(a, b);
+    if (state.sort === "last-played-newest") return (b.lastPlayed || 0) - (a.lastPlayed || 0) || byTitle(a, b);
+    if (state.sort === "genre") return String(a.genre || "Sin género").localeCompare(String(b.genre || "Sin género"), "es", { sensitivity: "base" }) || byTitle(a, b);
+    if (state.sort === "added-newest") return (b.addedAt || 0) - (a.addedAt || 0) || byTitle(a, b);
+    return byTitle(a, b);
+  });
 
   if (!games.length) {
     els.gamesGrid.innerHTML = `<div class="empty-state">No hay juegos con ese filtro. Lo sé, una tragedia administrativa.</div>`;
@@ -300,6 +311,7 @@ function gameCardHtml(game) {
         <button class="icon-btn" type="button" data-action="edit-game" data-id="${game.id}" title="Editar">✏️</button>
       </div>
       <div class="progress-wrap">
+        ${game.genre ? `<div class="game-meta"><span class="mini-pill">🎭 ${escapeHtml(game.genre)}</span></div>` : ""}
         <div class="progress-label"><span>Progreso</span><strong>${progress}%</strong></div>
         <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
       </div>
@@ -428,8 +440,9 @@ function gameFormHtml(game = {}, defaults = {}) {
     </div>
     <div class="form-grid">
       <div class="field"><label>Prioridad 1-5</label><input name="priority" type="number" min="1" max="5" value="${escapeHtml(current.priority || 3)}" /></div>
-      <div class="field"><label>Tags de mood</label><input name="moodTags" value="${escapeHtml((current.moodTags || []).join?.(", ") || current.moodTags || "")}" placeholder="chill, historia, reto" /></div>
+      <div class="field"><label>Género</label><input name="genre" value="${escapeHtml(current.genre || "")}" placeholder="Aventura, RPG, carreras..." /></div>
     </div>
+    <div class="field"><label>Tags de mood</label><input name="moodTags" value="${escapeHtml((current.moodTags || []).join?.(", ") || current.moodTags || "")}" placeholder="chill, historia, reto" /></div>
     <label class="field" style="display:flex;grid-template-columns:auto 1fr;align-items:center;gap:10px">
       <input name="allowInRotation" type="checkbox" ${current.allowInRotation || current.category === "main" ? "checked" : ""} />
       <span>Permitir en rotación si es secundario</span>
@@ -611,7 +624,8 @@ function openQuickSession() {
 }
 
 async function swapToday() {
-  const game = pickGame(state.data, { includeSecondary: true, avoidRecent: true });
+  const current = getTodayPlan(state.data);
+  const game = pickGame(state.data, { includeSecondary: true, avoidRecent: true, excludeGameIds: current?.gameId ? [current.gameId] : [] });
   if (!game) return toast("No hay candidatos para sugerir.");
   await saveTodayPlan(state.uid, game, "manual-swap");
   toast("Sugerencia cambiada.");
@@ -624,6 +638,7 @@ function spinRotator() {
     avoidRecent: $("#rotAvoidRecent").checked,
     shortSession: $("#rotShortSession").checked
   };
+  options.ignoreGenreRotation = !$("#rotAlternateGenre").checked;
   const candidates = state.data.games.filter((game) => {
     if (["completed", "paused", "wishlist"].includes(game.category)) return false;
     if (game.category === "main") return true;
@@ -737,6 +752,10 @@ function setupEvents() {
 
   els.gameSearch.addEventListener("input", (event) => {
     state.search = event.target.value;
+    renderGames();
+  });
+  els.gameSort.addEventListener("change", (event) => {
+    state.sort = event.target.value;
     renderGames();
   });
 

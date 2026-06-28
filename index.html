@@ -108,6 +108,16 @@
               <span>🔎</span>
               <input id="gameSearch" type="search" placeholder="Buscar juego, consola o nota mental..." autocomplete="off" />
             </label>
+            <label class="sort-box">
+              <span>Ordenar</span>
+              <select id="gameSort">
+                <option value="alphabetical">Alfabético</option>
+                <option value="last-played-oldest">Menos reciente primero</option>
+                <option value="last-played-newest">Más reciente primero</option>
+                <option value="genre">Por género</option>
+                <option value="added-newest">Añadidos recientemente</option>
+              </select>
+            </label>
             <div id="categoryFilters" class="chip-row" role="tablist"></div>
           </div>
 
@@ -131,6 +141,7 @@
               <label><input id="rotIncludeSecondary" type="checkbox" checked /> Incluir secundarios</label>
               <label><input id="rotIncludeCuriosity" type="checkbox" /> Incluir curiosidad</label>
               <label><input id="rotAvoidRecent" type="checkbox" checked /> Evitar repetir reciente</label>
+              <label><input id="rotAlternateGenre" type="checkbox" checked /> Alternar género</label>
               <label><input id="rotShortSession" type="checkbox" /> Sesión corta</label>
             </div>
           </section>

@@ -337,6 +337,8 @@ h1, h2, h3, p { margin-top: 0; }
 .card-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 
 .rotator-card { display: grid; gap: 16px; }
+.sort-box { display:flex; align-items:center; gap:10px; color:var(--muted); font-weight:800; }
+.sort-box select { min-width:230px; }
 .rotator-result {
   min-height: 190px;
   display: grid;
