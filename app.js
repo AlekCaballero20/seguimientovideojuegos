@@ -1,7 +1,7 @@
 import { ALLOWED_EMAIL, isAllowedUser, watchAuth, loginWithGoogle, logout } from "./firebase/auth.service.js";
 import { watchUserData, upsertItem, deleteAllUserData } from "./firebase/firestore.service.js";
 import { ensureDefaultConsoles, saveConsole, deleteConsole } from "./services/consoles.service.js";
-import { saveGame, updateGame, deleteGame, mainGamesForConsole, gameAverageRating } from "./services/games.service.js";
+import { saveGame, updateGame, deleteGame, mainGamesForConsole, gameAverageRating, progressFromTime } from "./services/games.service.js";
 import { registerSession } from "./services/sessions.service.js";
 import { buildStats } from "./services/stats.service.js";
 import { pickGame, saveTodayPlan, getTodayPlan } from "./services/rotation.service.js";
@@ -104,6 +104,14 @@ function gameCardClass(game) {
   return CATEGORY_META[game.category]?.className || "category-secondary";
 }
 
+function gameProgress(game) {
+  return progressFromTime(game.totalMinutes, game.estimatedMinutes, game.category);
+}
+
+function estimatedHoursValue(game) {
+  return Math.max(10, Number(game.estimatedMinutes) || 60) / 60;
+}
+
 function normalizeData(data) {
   return {
     consoles: (data.consoles || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))),
@@ -175,7 +183,7 @@ function renderToday() {
     return;
   }
 
-  const progress = percent(game.progress);
+  const progress = percent(gameProgress(game));
   els.todayRecommendation.className = `hero-card ${gameCardClass(game)}`;
   els.todayRecommendation.innerHTML = `
     <div class="hero-main">
@@ -189,7 +197,7 @@ function renderToday() {
       <div class="hero-meta">
         <span class="mini-pill">${escapeHtml(consoleItem?.icon || "🎮")} ${escapeHtml(consoleItem?.name || "Sin consola")}</span>
         <span class="mini-pill">${relativeDay(game.lastPlayed)}</span>
-        <span class="mini-pill">${minutesLabel(game.totalMinutes || 0)}</span>
+        <span class="mini-pill">${minutesLabel(game.totalMinutes || 0)} de ${minutesLabel(game.estimatedMinutes || 60)}</span>
       </div>
       <div class="progress-wrap">
         ${game.genre ? `<div class="game-meta"><span class="mini-pill">🎭 ${escapeHtml(game.genre)}</span></div>` : ""}
@@ -298,7 +306,7 @@ function renderGames() {
 
 function gameCardHtml(game) {
   const consoleItem = consoleById(game.consoleId);
-  const progress = percent(game.progress);
+  const progress = percent(gameProgress(game));
   const avg = averageRatingFromSessions(game.id) || gameAverageRating(game);
   return `
     <article class="game-card ${gameCardClass(game)}">
@@ -318,7 +326,7 @@ function gameCardHtml(game) {
         <div class="progress-bar"><div class="progress-fill" style="width:${progress}%"></div></div>
       </div>
       <div class="game-stats">
-        <div class="stat-mini"><span>Tiempo</span><strong>${minutesLabel(game.totalMinutes || 0)}</strong></div>
+        <div class="stat-mini"><span>Tiempo</span><strong>${minutesLabel(game.totalMinutes || 0)} / ${minutesLabel(game.estimatedMinutes || 60)}</strong></div>
         <div class="stat-mini"><span>Última vez</span><strong>${relativeDay(game.lastPlayed)}</strong></div>
         <div class="stat-mini"><span>Rating</span><strong>${stars(avg)}</strong></div>
       </div>
@@ -423,7 +431,7 @@ function openConsoleForm(consoleItem = {}) {
 }
 
 function gameFormHtml(game = {}, defaults = {}) {
-  const current = { category: "secondary", progress: 0, priority: 3, estimatedMinutes: 60, rotationEnabled: true, allowInRotation: false, ...defaults, ...game };
+  const current = { category: "secondary", priority: 3, estimatedMinutes: 600, rotationEnabled: true, allowInRotation: false, ...defaults, ...game };
   const consoleOptions = state.data.consoles.map((consoleItem) => `
     <option value="${consoleItem.id}" ${current.consoleId === consoleItem.id ? "selected" : ""}>${escapeHtml(consoleItem.name)}</option>
   `).join("");
@@ -437,10 +445,7 @@ function gameFormHtml(game = {}, defaults = {}) {
       <div class="field"><label>Consola</label><select name="consoleId" required>${consoleOptions}</select></div>
       <div class="field"><label>Categoría</label><select name="category">${categoryOptions}</select></div>
     </div>
-    <div class="form-grid">
-      <div class="field"><label>Progreso %</label><input name="progress" type="number" min="0" max="100" value="${escapeHtml(current.progress || 0)}" /></div>
-      <div class="field"><label>Duración estimada min</label><input name="estimatedMinutes" type="number" min="10" value="${escapeHtml(current.estimatedMinutes || 60)}" /></div>
-    </div>
+    <div class="field"><label>Duración estimada (horas)</label><input name="estimatedHours" type="number" min="0.25" step="0.25" required value="${escapeHtml(estimatedHoursValue(current))}" /><small class="muted">El progreso se calcula automáticamente según las horas registradas.</small></div>
     <div class="form-grid">
       <div class="field"><label>Prioridad 1-5</label><input name="priority" type="number" min="1" max="5" value="${escapeHtml(current.priority || 3)}" /></div>
       <div class="field"><label>Género</label><input name="genre" value="${escapeHtml(current.genre || "")}" placeholder="Aventura, RPG, carreras..." /></div>
@@ -473,9 +478,8 @@ function openGameForm(game = {}, defaults = {}) {
       const prepared = {
         ...game,
         ...values,
-        progress: Number(values.progress) || 0,
         priority: Number(values.priority) || 3,
-        estimatedMinutes: Number(values.estimatedMinutes) || 60,
+        estimatedMinutes: Math.max(10, (Number(values.estimatedHours) || 1) * 60),
         rotationEnabled: values.rotationEnabled === "on",
         allowInRotation: values.allowInRotation === "on"
       };
@@ -524,21 +528,15 @@ function openSessionForm(game) {
         <div class="field"><label>Rating 1-5</label><input name="rating" type="number" min="1" max="5" value="4" /></div>
       </div>
       <div class="form-grid">
-        <div class="field"><label>Progreso nuevo %</label><input name="progress" type="number" min="0" max="100" value="${escapeHtml(game.progress || 0)}" /></div>
+        <div class="field"><label>Avance estimado</label><input type="text" readonly value="${percent(gameProgress(game))}% ahora · ${minutesLabel(game.totalMinutes || 0)} de ${minutesLabel(game.estimatedMinutes || 60)}" /></div>
         <div class="field"><label>Mood</label><input name="mood" placeholder="chill, intenso, sufrí" /></div>
       </div>
-      <label class="field" style="display:flex;grid-template-columns:auto 1fr;align-items:center;gap:10px">
-        <input name="completed" type="checkbox" />
-        <span>Marcar como completado</span>
-      </label>
+      <p class="muted" style="margin:0">Al guardar, el porcentaje se actualizará automáticamente con la duración de esta sesión.</p>
       <div class="field"><label>Nota</label><textarea name="note" placeholder="Qué pasó, qué misión hiciste, qué jefe te humilló..."></textarea></div>
     `,
     confirmText: "Guardar sesión",
     onSubmit: async (values) => {
-      await registerSession(state.uid, game, {
-        ...values,
-        completed: values.completed === "on"
-      });
+      await registerSession(state.uid, game, values);
       toast("Sesión guardada. Otra decisión humana convertida en estadística.");
     }
   });
@@ -569,7 +567,7 @@ function openGameStats(game) {
       <div class="kpi-grid">
         <article class="kpi-card"><span>Tiempo</span><strong>${minutesLabel(game.totalMinutes || 0)}</strong></article>
         <article class="kpi-card"><span>Sesiones</span><strong>${sessions.length}</strong></article>
-        <article class="kpi-card"><span>Progreso</span><strong>${percent(game.progress)}%</strong></article>
+        <article class="kpi-card"><span>Progreso</span><strong>${percent(gameProgress(game))}%</strong></article>
         <article class="kpi-card"><span>Rating</span><strong>${stars(avg)}</strong></article>
       </div>
       <div class="session-list">

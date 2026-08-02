@@ -3,6 +3,8 @@ import { CATEGORY_META } from "../utils/constants.js";
 
 export function normalizeGame(input = {}) {
   const category = CATEGORY_META[input.category] ? input.category : "secondary";
+  const estimatedMinutes = Number.isFinite(Number(input.estimatedMinutes)) ? Math.max(10, Number(input.estimatedMinutes)) : 60;
+  const totalMinutes = Number(input.totalMinutes) || 0;
   return {
     id: input.id || crypto.randomUUID(),
     title: String(input.title || "").trim() || "Juego sin nombre",
@@ -10,8 +12,8 @@ export function normalizeGame(input = {}) {
     category,
     rotationEnabled: input.rotationEnabled !== false,
     allowInRotation: category === "secondary" ? Boolean(input.allowInRotation) : category === "main",
-    progress: Number.isFinite(Number(input.progress)) ? Math.max(0, Math.min(100, Number(input.progress))) : 0,
-    estimatedMinutes: Number.isFinite(Number(input.estimatedMinutes)) ? Math.max(10, Number(input.estimatedMinutes)) : 60,
+    progress: progressFromTime(totalMinutes, estimatedMinutes, category),
+    estimatedMinutes,
     priority: Number.isFinite(Number(input.priority)) ? Math.max(1, Math.min(5, Number(input.priority))) : 3,
     genre: String(input.genre || "").trim(),
     moodTags: Array.isArray(input.moodTags) ? input.moodTags : String(input.moodTags || "").split(",").map((x) => x.trim()).filter(Boolean),
@@ -20,10 +22,16 @@ export function normalizeGame(input = {}) {
     startedAt: input.startedAt || null,
     lastPlayed: input.lastPlayed || null,
     completedAt: input.completedAt || null,
-    totalMinutes: Number(input.totalMinutes) || 0,
+    totalMinutes,
     sessionsCount: Number(input.sessionsCount) || 0,
     ratingSum: Number(input.ratingSum) || 0
   };
+}
+
+export function progressFromTime(totalMinutes = 0, estimatedMinutes = 60, category = "secondary") {
+  if (category === "completed") return 100;
+  const estimate = Math.max(10, Number(estimatedMinutes) || 60);
+  return Math.max(0, Math.min(100, (Math.max(0, Number(totalMinutes) || 0) / estimate) * 100));
 }
 
 export function mainGamesForConsole(games, consoleId, excludingId = null) {

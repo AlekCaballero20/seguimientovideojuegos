@@ -6,7 +6,9 @@ export async function registerSession(uid, game, sessionInput = {}) {
   const now = Date.now();
   const duration = Math.max(1, Number(sessionInput.duration) || 30);
   const rating = Number(sessionInput.rating) || 0;
-  const progress = Number.isFinite(Number(sessionInput.progress)) ? Math.max(0, Math.min(100, Number(sessionInput.progress))) : Number(game.progress) || 0;
+  const totalMinutes = (Number(game.totalMinutes) || 0) + duration;
+  const estimate = Math.max(10, Number(game.estimatedMinutes) || 60);
+  const progress = Math.min(100, (totalMinutes / estimate) * 100);
   const completed = Boolean(sessionInput.completed) || progress >= 100;
 
   const session = {
@@ -31,7 +33,7 @@ export async function registerSession(uid, game, sessionInput = {}) {
     completedAt: completed ? (game.completedAt || now) : game.completedAt,
     category: completed ? "completed" : game.category,
     allowInRotation: completed ? false : game.allowInRotation,
-    totalMinutes: (Number(game.totalMinutes) || 0) + duration,
+    totalMinutes,
     sessionsCount: (Number(game.sessionsCount) || 0) + 1,
     ratingSum: (Number(game.ratingSum) || 0) + (session.rating || 0)
   });
